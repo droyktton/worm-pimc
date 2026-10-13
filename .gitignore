@@ -3,3 +3,5 @@ __pycache__/
 worm_pimc_gpu_*
 *.out
 build_*/
+slurm/logs/*
+!slurm/logs/.gitkeep

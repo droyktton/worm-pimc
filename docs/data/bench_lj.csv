@@ -1,0 +1,9 @@
+# 3D Lennard-Jones, rho*sigma^3=0.7, T=1, lam=0.05, P=32, thermalised production (bench_N2.sh, bench_cpu_N.sh)
+# total MC steps per second; GPU = RTX 5070 Ti, W=32, R=1024; CPU = 1 core Xeon Gold 6330
+N,cpu_1core,gpu_w32_double,gpu_w32_float
+8,1.961e6,7.386e6,5.288e7
+27,4.158e5,6.274e6,4.766e7
+64,1.603e5,5.13e6,3.268e7
+125,8.805e4,3.229e6,1.959e7
+216,6.195e4,1.804e6,9.507e6
+512,3.045e4,8.191e5,2.412e6

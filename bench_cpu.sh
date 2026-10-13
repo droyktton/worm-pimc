@@ -1,4 +1,5 @@
 #!/bin/bash
+# usage: sbatch -p cpu -n1 -c1 bench_cpu.sh   -- CPU baseline (1 core) for the trap cases of bench_gpu.sh
 # CPU baseline (single core) for the same cases as bench_gpu.sh
 B=build_$SLURM_JOB_ID; mkdir -p $B
 for d in 1 2; do g++ -O3 -march=native -std=c++17 -DDIM=$d worm_pimc.cpp -o $B/c${d}d; done

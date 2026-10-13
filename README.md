@@ -5,6 +5,55 @@ Based on Boninsegni, Prokof'ev, Svistunov, PRL 96, 070601 (2006). Units ħ = m =
 Grand-canonical ensemble, primitive approximation with P imaginary-time slices, Z/G sectors.
 Moves: Open/Close, Insert/Remove, Advance/Recede (head and tail), Swap, Staging.
 
+Full documentation (models, method, estimators, GPU implementation, demos, validation, performance, references):
+**[docs/worm_pimc.md](docs/worm_pimc.md)**.
+
+## Quick start on a desktop or laptop
+
+Requirements:
+
+- **CPU code:** a C++17 compiler (g++ ≥ 7 or clang).
+- **GPU code:** an NVIDIA GPU and the CUDA toolkit (`nvcc` ≥ 11.5 for `-arch=native`).
+- **Exact references and demos:** Python 3.
+- **Figures:** matplotlib.
+
+Platform notes:
+
+- **Linux:** works as is.
+- **Windows:** use WSL2. The CUDA toolkit for WSL gives GPU access.
+- **macOS:** CPU code only (no CUDA).
+
+```bash
+git clone https://github.com/droyktton/worm-pimc.git && cd worm-pimc
+
+# CPU: 1D bosons in a harmonic trap (a few seconds), and the comparison with the exact result
+g++ -O3 -march=native -std=c++17 -DDIM=1 worm_pimc.cpp -o worm_pimc_1d
+./worm_pimc_1d P=24 beta=1 mu=0 kappa=0.3 C=1e-3 steps=3e7 therm=1e6
+python3 exact_pa.py --d 1 --beta 1 --mu 0 --kappa 0.3 --P 24
+
+# GPU: compile for the GPU in this machine; float is much faster on GeForce cards
+nvcc -O3 -std=c++17 -arch=native -DDIM=3 -DUSE_FLOAT worm_pimc_gpu.cu -o worm_pimc_gpu_3d_f
+# ideal Bose gas in a periodic box, compared with the exact result
+./worm_pimc_gpu_3d_f pbc=1 omega=0 P=24 beta=2 mu=-0.1 Lbox=3 C=1e-4 R=4096 steps=1e5 therm=2e4
+python3 exact_ideal.py --d 3 --beta 2 --mu -0.1 --L 3
+
+# demos (each one compiles what it needs; results in demos/out/)
+bash demos/demo_trap.sh                                        # CPU, a few minutes
+ARCH=-arch=native R=2048 bash demos/demo_superfluid.sh         # GPU
+ARCH=-arch=native R=128  bash demos/demo_lj_eos.sh             # GPU, replica-per-warp mode
+python3 docs/make_figures.py                                   # figures in docs/figures/
+```
+
+Hints for small machines:
+
+- **GPU memory.** Lower the number of replicas `R` on laptop GPUs. The program checks free device memory and says how much it needs.
+- **CPU-only machines.** Run the CPU code. To use several cores, start independent runs with different `seed=` and average them.
+
+## Running on a SLURM cluster
+
+See [slurm/README.md](slurm/README.md): `bash slurm/run_all_demos.sh` submits all demos and then the figures.
+Compile and run on compute nodes, not on the login node.
+
 ## Usage (CPU)
     g++ -O2 -std=c++17 -DDIM=1 worm_pimc.cpp -o worm_pimc_1d    # DIM = 1, 2, 3
     ./worm_pimc_1d P=24 beta=1 mu=0 C=1e-3 Lmax=8 omega=1 kappa=0 steps=3e7 therm=3e6

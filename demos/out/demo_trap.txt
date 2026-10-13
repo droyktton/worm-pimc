@@ -1,0 +1,8 @@
+d=1 beta=1 mu=0 kappa=0.3   (4 seeds x 1e8 steps)
+  N     exact = 1.23924   MC = 1.23820 +- 0.00176   (-0.6 sigma)
+  Vbar  exact = 0.59909   MC = 0.59748 +- 0.00098   (-1.6 sigma)
+  E     exact = 1.19819   MC = 1.19468 +- 0.00393   (-0.9 sigma)
+d=2 beta=1 mu=-0.3 kappa=0.3   (4 seeds x 1e8 steps)
+  N     exact = 0.60910   MC = 0.60846 +- 0.00152   (-0.4 sigma)
+  Vbar  exact = 0.63804   MC = 0.63827 +- 0.00187   (+0.1 sigma)
+  E     exact = 1.27609   MC = 1.27614 +- 0.00576   (+0.0 sigma)

@@ -473,8 +473,9 @@ struct Sim {
 
 static double getd(int argc, char** argv, const char* key, double def) {
     size_t n = strlen(key);
-    for (int i = 1; i < argc; i++) if (!strncmp(argv[i], key, n) && argv[i][n] == '=') return atof(argv[i] + n + 1);
-    return def;
+    double v = def;                       // the last occurrence wins
+    for (int i = 1; i < argc; i++) if (!strncmp(argv[i], key, n) && argv[i][n] == '=') v = atof(argv[i] + n + 1);
+    return v;
 }
 
 int main(int argc, char** argv) {

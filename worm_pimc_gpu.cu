@@ -626,8 +626,9 @@ __global__ void check_kernel(Params p, State S, int* bad) {
 
 static double getd(int argc, char** argv, const char* key, double def) {
     size_t n = strlen(key);
-    for (int i = 1; i < argc; i++) if (!strncmp(argv[i], key, n) && argv[i][n] == '=') return atof(argv[i] + n + 1);
-    return def;
+    double v = def;                       // the last occurrence wins
+    for (int i = 1; i < argc; i++) if (!strncmp(argv[i], key, n) && argv[i][n] == '=') v = atof(argv[i] + n + 1);
+    return v;
 }
 
 template <class T> static T* dalloc(size_t n) {
