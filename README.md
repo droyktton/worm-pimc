@@ -26,9 +26,40 @@ Resultados (3e7 pasos, C=1e-3; exacto PA vs MC):
 Los resultados no dependen de C (probado C=0.1…0.001); C solo afecta la eficiencia (apuntar a Zfrac ~ 0.1–0.5).
 Limitación: el test es en trampa; no incluye interacciones de contacto/Lennard-Jones (agregar potencial en U()).
 
-## Plan GPU (CUDA) — NO implementado ni probado (sin nvcc/GPU en el entorno)
-Una cadena worm es secuencial, así que la paralelización natural es:
-1. **Réplicas independientes**: un bloque (o warp) por réplica, estado en memoria compartida/global (posiciones SoA, listas prev/next), RNG Philox por réplica. Escala casi linealmente; promedio al final.
-2. **Dentro de la réplica** (N grande): reducciones paralelas para energía de pares al insertar/mover segmentos y para las sumas de candidatos del Swap; staging sobre slices en paralelo por hilos.
-3. Para interacciones de pares a N grande, celdas/Verlet por slice.
-Pasos sugeridos: portar `Sim` a struct de arrays, kernel `run_replica`, tests contra `validate.sh`.
+## Opciones agregadas (CPU y GPU)
+`pbc=1` caja periódica de lado `Lbox` (imagen mínima en links y pares; Open/Close/Swap usan el
+propagador libre sumado sobre imágenes y eligen la imagen ∝ G0; Staging conserva el desplazamiento
+real del segmento, i.e. el winding), `lam` (ħ²/2m), `pot=0` armónico de pares `kappa` / `1` LJ (`eps`,`sig`)
+/ `2` Aziz HFDHE2 para ⁴He (K, Å; `lam=6.0596`), cutoff `rc` (≤ Lbox/2), `N0` (arranque con N0 líneas de
+mundo cerradas en red). Observables nuevos: energía termodinámica `E`, winding `D2` y `rhos` = <D²>/(2λdβ<N>).
+`exact_ideal.py`: gas de Bose ideal en caja periódica (N, E, D², ρs exactos; la PA es exacta para partículas libres).
+
+## GPU (CUDA): `worm_pimc_gpu.cu`
+    nvcc -O3 -std=c++17 -arch=sm_86 -DDIM=3 [-DUSE_FLOAT] worm_pimc_gpu.cu -o worm_pimc_gpu_3d
+    ./worm_pimc_gpu_3d W=32 R=1024 steps=1e5 therm=2e4 ...   # mismos parámetros que la CPU
+Mismos movimientos y aceptaciones que la CPU; réplicas independientes (`R`, `steps`/`therm` son POR réplica).
+- `W=1`: un hilo = una réplica (pocas partículas, N ≲ 10).
+- `W=32`: un warp = una réplica; las sumas O(N) (U de una cuenta contra su slice, normalizaciones del Swap,
+  medición) se reparten entre lanes y se reducen con shuffles (resultado broadcast desde el lane 0, así todos
+  los lanes toman decisiones idénticas con copias idénticas del RNG).
+Con la misma semilla W=1 y W=32 dan resultados bit a bit idénticos. Errores: jackknife sobre grupos de réplicas.
+Capacidad fija `SM` (cuentas por slice) y `NB` (por réplica): un movimiento que la excede se rechaza
+(ensamble truncado; se reporta `overflow`). `debug=1` chequea consistencia de listas entre chunks.
+Nota: los movimientos son `__forceinline__` a propósito (ptxas 13.0/13.3 corrompía el frame local de W=1).
+
+Validación (scripts `validate_gpu.sh`, `validate_pbc.sh`, `ref_lj_cpu.sh` + `lj_gpu.sh`/`lj_float.sh`):
+trampa (N, Vbar, E) y gas ideal periódico 1D/2D/3D (N, E, D², ρs) contra exacto, en double y float,
+con errores ~5–10× menores que los tests CPU; LJ 3D (N≈21) GPU vs CPU dentro de 1σ (double y float).
+
+Rendimiento (LJ 3D ρσ³=0.7, T=1, P=32, producción termalizada; pasos MC/s totales; `bench_N2.sh`, `bench_cpu_N.sh`):
+| N | 1 core Xeon Gold 6330 | 5070 Ti W=32 double | 5070 Ti W=32 float | float vs 1 core |
+|---|---|---|---|---|
+| 8 | 2.0e6 | 7.4e6 | 5.3e7 | 27× |
+| 27 | 4.2e5 | 6.3e6 | 4.8e7 | 115× |
+| 64 | 1.6e5 | 5.1e6 | 3.3e7 | 204× |
+| 125 | 8.8e4 | 3.2e6 | 2.0e7 | 223× |
+| 216 | 6.2e4 | 1.8e6 | 9.5e6 | 153× |
+| 512 | 3.0e4 | 8.2e5 | 2.4e6 | 79× |
+Trampa (N≈1–2, `bench_gpu.sh`): W=1 float ~2–3e8 pasos/s vs 6.5e6 en 1 core.
+FP64 en GeForce es 1/64 de FP32: usar `-DUSE_FLOAT` (validado) salvo que haga falta double.
+Pendiente: listas de celdas para N grande (la tasa cae ~1/N), y costo de termalizar cada réplica.

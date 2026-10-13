@@ -18,6 +18,12 @@
 //   Open/Close, Insert/Remove, Advance/Recede (head and tail), Swap (head),
 //   Staging (Levy bridge on a segment, any sector).
 //
+// Options: pbc=1 (periodic box of side Lbox, minimum image on links and
+// pairs), pot=0 harmonic pair kappa / 1 Lennard-Jones (eps,sig) / 2 Aziz
+// HFDHE2 for 4He (K, Angstrom; use lam=6.0596), pair cutoff rc.
+// Z-sector estimators: N, Vbar, thermodynamic energy E, winding <D^2>
+// (D = sum of link displacements; rho_s/rho = <D^2>/(2 lam d beta <N>)).
+//
 // Build:  g++ -O2 -std=c++17 -DDIM=1 worm_pimc.cpp -o worm_pimc_1d
 //
 #include <cstdio>
@@ -47,8 +53,10 @@ struct Sim {
     int P = 24, Lmax = 8;
     double beta = 1.0, tau = 0.0, mu = 0.0, C = 1.0, Lbox = 12.0;
     double omega = 1.0, kappa = 0.0;   // external trap, harmonic pair coupling
-    const double lam = 0.5;
+    double lam = 0.5;                  // hbar^2/(2m)
     double Vbox = 1.0;
+    int pbc = 0, pot = 0;              // periodic box; pair potential type
+    double eps = 1.0, sig = 1.0, rc = 1e300, rc2 = 1e300;
 
     std::mt19937_64 rng;
     std::normal_distribution<double> nd{0.0, 1.0};
@@ -69,6 +77,7 @@ struct Sim {
     void init() {
         tau = beta / P;
         Vbox = std::pow(Lbox, DIM);
+        rc2 = rc < 1e150 ? rc * rc : 1e300;
         sl.assign(P, {});
     }
 
@@ -77,23 +86,41 @@ struct Sim {
     double gauss() { return nd(rng); }
 
     // ---- physics helpers
+    inline double mimg(double x) const { return pbc ? x - Lbox * std::nearbyint(x / Lbox) : x; }
+    inline void wrapr(double* r) const { if (pbc) for (int d = 0; d < DIM; d++) r[d] = mimg(r[d]); }
     inline double d2(const double* a, const double* b) const {
         double s = 0;
-        for (int d = 0; d < DIM; d++) { double x = a[d] - b[d]; s += x * x; }
+        for (int d = 0; d < DIM; d++) { double x = mimg(a[d] - b[d]); s += x * x; }
         return s;
     }
     inline double vext(const double* r) const {
+        if (omega == 0.0) return 0.0;
         double s = 0;
         for (int d = 0; d < DIM; d++) s += r[d] * r[d];
         return 0.5 * omega * omega * s;
     }
-    inline double vpair(double r2) const { return 0.5 * kappa * r2; }
+    static double aziz(double r) {          // HFDHE2, Aziz et al. JCP 70, 4330 (1979); K, Angstrom
+        const double eps = 10.8, rm = 2.9673, A = 0.5448504e6, alpha = 13.353384, D = 1.241314;
+        const double C6 = 1.3732412, C8 = 0.4253785, C10 = 0.178100;
+        double x = r / rm, x2 = x * x, x6 = x2 * x2 * x2;
+        double F = x < D ? std::exp(-(D / x - 1.0) * (D / x - 1.0)) : 1.0;
+        return eps * (A * std::exp(-alpha * x) - F * (C6 / x6 + C8 / (x6 * x2) + C10 / (x6 * x2 * x2)));
+    }
+    inline double vpair(double r2) const {
+        if (r2 > rc2) return 0.0;
+        switch (pot) {
+            case 1: { double s6 = sig * sig / r2; s6 = s6 * s6 * s6; return 4.0 * eps * (s6 * s6 - s6); }
+            case 2: return aziz(std::sqrt(r2));
+            default: return 0.5 * kappa * r2;
+        }
+    }
+    bool pairs() const { return pot != 0 || kappa != 0.0; }
 
     // potential felt by a bead at position r on slice s (others on that slice,
     // excluding bead 'excl'); pairs are attributed to the bead being added/removed
     double U(const double* r, int s, int excl) const {
         double e = vext(r);
-        if (kappa != 0.0) {
+        if (pairs()) {
             for (int b : sl[s]) if (b != excl) e += vpair(d2(r, B[b].r));
         }
         return e;
@@ -102,6 +129,32 @@ struct Sim {
     double logG0(double dist2, int m) const {
         double t = m * tau;
         return -0.5 * DIM * std::log(4.0 * M_PI * lam * t) - dist2 / (4.0 * lam * t);
+    }
+    // with pbc, free propagator over m links summed over periodic images of b
+    // (factorises per dimension); without pbc identical to logG0
+    static const int NIMG = 2;
+    double logG0i(const double* a, const double* b, int m) const {
+        if (!pbc) return logG0(d2(a, b), m);
+        double t4 = 4.0 * lam * m * tau, s = -0.5 * DIM * std::log(M_PI * t4);
+        for (int d = 0; d < DIM; d++) {
+            double x = mimg(b[d] - a[d]), z = 0;
+            for (int n = -NIMG; n <= NIMG; n++) { double y = x + n * Lbox; z += std::exp(-y * y / t4); }
+            s += std::log(z);
+        }
+        return s;
+    }
+    // unwrapped target for a bridge a -> b over m links: periodic image chosen
+    // with probability proportional to its free propagator (pairs with logG0i)
+    void pickImage(const double* a, const double* b, int m, double* bt) {
+        if (!pbc) { for (int d = 0; d < DIM; d++) bt[d] = b[d]; return; }
+        double t4 = 4.0 * lam * m * tau;
+        for (int d = 0; d < DIM; d++) {
+            double x = mimg(b[d] - a[d]), w[2 * NIMG + 1], z = 0;
+            for (int n = -NIMG; n <= NIMG; n++) { double y = x + n * Lbox; w[n + NIMG] = std::exp(-y * y / t4); z += w[n + NIMG]; }
+            double u = uni() * z; int k = 0;
+            while (k < 2 * NIMG && u >= w[k]) { u -= w[k]; k++; }
+            bt[d] = a[d] + x + (k - NIMG) * Lbox;
+        }
     }
 
     // ---- bead management
@@ -125,7 +178,8 @@ struct Sim {
     }
 
     // ---- path sampling
-    // Levy bridge from a to b in m steps; out gets the m-1 interior points
+    // Levy bridge from a to the (unwrapped) point b in m steps; out gets the
+    // m-1 interior points, wrapped into the box with pbc
     void bridge(const double* a, const double* b, int m, std::vector<Vec>& out) {
         out.resize(m > 0 ? m - 1 : 0);
         Vec prev; for (int d = 0; d < DIM; d++) prev[d] = a[d];
@@ -136,6 +190,7 @@ struct Sim {
                 out[j - 1][d] = prev[d] + (b[d] - prev[d]) / rem + sd * gauss();
             prev = out[j - 1];
         }
+        for (auto& v : out) wrapr(v.data());
     }
     // free forward extension by n steps
     void extend(const double* a, int n, std::vector<Vec>& out) {
@@ -146,6 +201,7 @@ struct Sim {
             for (int d = 0; d < DIM; d++) out[j][d] = prev[d] + sd * gauss();
             prev = out[j];
         }
+        for (auto& v : out) wrapr(v.data());
     }
 
     bool accept(double logA) { return logA >= 0.0 || std::log(uni()) < logA; }
@@ -164,7 +220,7 @@ struct Sim {
         double dV = 0;
         for (int j = 1; j <= m - 1; j++) dV += U(B[ch[j]].r, B[ch[j]].slice, ch[j]);
         double logA = std::log(C) + std::log((double)Nb) + std::log((double)Lmax)
-                    + tau * dV - (m - 1) * mu * tau - logG0(d2(B[b0].r, B[ch[m]].r), m);
+                    + tau * dV - (m - 1) * mu * tau - logG0i(B[b0].r, B[ch[m]].r, m);
         if (!accept(logA)) return false;
         for (int j = 1; j <= m - 1; j++) killBead(ch[j]);
         B[b0].next = -1; B[ch[m]].prev = -1;
@@ -179,11 +235,12 @@ struct Sim {
         if (g > Lmax) return false;
         att[1]++;
         std::vector<Vec> np;
-        bridge(B[head].r, B[tail].r, g, np);
+        double bt[DIM]; pickImage(B[head].r, B[tail].r, g, bt);
+        bridge(B[head].r, bt, g, np);
         double dV = 0;
         for (int k = 1; k <= g - 1; k++) dV += U(np[k - 1].data(), wrap(sI + k), -1);
         int NbAfter = (int)act.size() + (g - 1);
-        double logA = logG0(d2(B[head].r, B[tail].r), g) + (g - 1) * mu * tau - tau * dV
+        double logA = logG0i(B[head].r, B[tail].r, g) + (g - 1) * mu * tau - tau * dV
                     - std::log(C) - std::log((double)NbAfter) - std::log((double)Lmax);
         if (!accept(logA)) return false;
         int cur = head;
@@ -295,10 +352,9 @@ struct Sim {
         if (cand.empty()) return false;
         att[8]++;
         int nc = (int)cand.size();
-        double den = 4.0 * lam * m * tau;
         std::vector<double> e1(nc);
         double mx = -1e300;
-        for (int i = 0; i < nc; i++) { e1[i] = -d2(B[h].r, B[cand[i]].r) / den; mx = std::max(mx, e1[i]); }
+        for (int i = 0; i < nc; i++) { e1[i] = logG0i(B[h].r, B[cand[i]].r, m); mx = std::max(mx, e1[i]); }
         double sum1 = 0; for (int i = 0; i < nc; i++) sum1 += std::exp(e1[i] - mx);
         // choose candidate
         double u = uni() * sum1, cs = 0; int idx = nc - 1;
@@ -307,13 +363,14 @@ struct Sim {
         double logsum1 = mx + std::log(sum1);
         // reverse normalisation from q
         double mx2 = -1e300; std::vector<double> e2(nc);
-        for (int i = 0; i < nc; i++) { e2[i] = -d2(B[q].r, B[cand[i]].r) / den; mx2 = std::max(mx2, e2[i]); }
+        for (int i = 0; i < nc; i++) { e2[i] = logG0i(B[q].r, B[cand[i]].r, m); mx2 = std::max(mx2, e2[i]); }
         double sum2 = 0; for (int i = 0; i < nc; i++) sum2 += std::exp(e2[i] - mx2);
         double logsum2 = mx2 + std::log(sum2);
         // old interior chain (m-1 beads), oldc[t] at slice s+m-1-t
         std::vector<int> oldc(m > 1 ? m - 1 : 0);
         { int p = j; for (int t = 0; t < m - 1; t++) { p = B[p].prev; oldc[t] = p; } }
-        std::vector<Vec> np; bridge(B[h].r, B[j].r, m, np);   // np[k] at slice s+1+k
+        double bt[DIM]; pickImage(B[h].r, B[j].r, m, bt);
+        std::vector<Vec> np; bridge(B[h].r, bt, m, np);       // np[k] at slice s+1+k
         double dV = 0;
         for (int k = 0; k < m - 1; k++) {
             int ob = oldc[m - 2 - k]; int sk = wrap(s + 1 + k);
@@ -339,7 +396,10 @@ struct Sim {
         std::vector<int> ch(m + 1); ch[0] = a;
         for (int j = 1; j <= m; j++) { int n = B[ch[j - 1]].next; if (n < 0) return false; ch[j] = n; }
         att[9]++;
-        std::vector<Vec> np; bridge(B[a].r, B[ch[m]].r, m, np);
+        // keep the segment's actual end-to-end displacement (winding preserved)
+        double bt[DIM]; for (int d = 0; d < DIM; d++) bt[d] = B[a].r[d];
+        for (int j = 1; j <= m; j++) for (int d = 0; d < DIM; d++) bt[d] += mimg(B[ch[j]].r[d] - B[ch[j - 1]].r[d]);
+        std::vector<Vec> np; bridge(B[a].r, bt, m, np);
         double dV = 0;
         for (int j = 1; j <= m - 1; j++) {
             int x = ch[j]; int sk = B[x].slice;
@@ -350,19 +410,30 @@ struct Sim {
         acc[9]++; return true;
     }
 
-    // ---- observables (Z sector): N and mean-over-slices potential energy
-    void measure(double& Nn, double& Vbar) const {
-        Nn = act.size() / (double)P;
+    // ---- observables (Z sector)
+    enum { O_N, O_V, O_E, O_D2, NOBS };
+    void measure(double* o) const {
+        double Nb = (double)act.size();
         double e = 0;
         for (int s = 0; s < P; s++) {
             const std::vector<int>& L = sl[s];
             for (size_t i = 0; i < L.size(); i++) {
                 e += vext(B[L[i]].r);
-                if (kappa != 0.0)
+                if (pairs())
                     for (size_t j = i + 1; j < L.size(); j++) e += vpair(d2(B[L[i]].r, B[L[j]].r));
             }
         }
-        Vbar = e / P;
+        double k2 = 0, D[DIM] = {0};
+        for (int id : act) {
+            const Bead& b = B[id];
+            const Bead& c = B[b.next];
+            for (int d = 0; d < DIM; d++) { double x = mimg(c.r[d] - b.r[d]); k2 += x * x; D[d] += x; }
+        }
+        double D2 = 0; for (int d = 0; d < DIM; d++) D2 += D[d] * D[d];
+        o[O_N] = Nb / P;
+        o[O_V] = e / P;
+        o[O_E] = (0.5 * DIM * Nb / tau - k2 / (4.0 * lam * tau * tau)) / P + e / P;
+        o[O_D2] = D2;
     }
 
     void step() {
@@ -416,6 +487,12 @@ int main(int argc, char** argv) {
     S.Lbox = getd(argc, argv, "Lbox", 12.0);
     S.omega = getd(argc, argv, "omega", 1.0);
     S.kappa = getd(argc, argv, "kappa", 0.0);
+    S.lam = getd(argc, argv, "lam", 0.5);
+    S.pbc = (int)getd(argc, argv, "pbc", 0);
+    S.pot = (int)getd(argc, argv, "pot", 0);
+    S.eps = getd(argc, argv, "eps", 1.0);
+    S.sig = getd(argc, argv, "sig", 1.0);
+    S.rc = getd(argc, argv, "rc", S.pbc ? 0.5 * S.Lbox : 1e300);
     double nsteps = getd(argc, argv, "steps", 2e7);
     double ntherm = getd(argc, argv, "therm", 2e6);
     int meas = (int)getd(argc, argv, "meas", 20);
@@ -423,43 +500,73 @@ int main(int argc, char** argv) {
     int debug = (int)getd(argc, argv, "debug", 0);
     S.rng.seed((unsigned long long)getd(argc, argv, "seed", 12345));
     if (S.Lmax > S.P - 2) { fprintf(stderr, "need Lmax <= P-2\n"); return 1; }
+    if (S.pbc && S.rc > 0.5 * S.Lbox * (1 + 1e-12)) { fprintf(stderr, "need rc <= Lbox/2 with pbc\n"); return 1; }
     S.init();
+    // optional initial state: N0 straight closed worldlines on a simple lattice
+    int N0 = (int)getd(argc, argv, "N0", 0);
+    if (N0 > 0) {
+        int ns = (int)std::ceil(std::pow((double)N0, 1.0 / DIM) - 1e-9);
+        double a = S.Lbox / ns;
+        for (int i = 0; i < N0; i++) {
+            double x[DIM]; int c = i;
+            for (int d = 0; d < DIM; d++) { x[d] = -0.5 * S.Lbox + (c % ns + 0.5) * a; c /= ns; }
+            int first = S.newBead(x, 0), cur = first;
+            for (int s = 1; s < S.P; s++) { int nb = S.newBead(x, s); S.B[cur].next = nb; S.B[nb].prev = cur; cur = nb; }
+            S.B[cur].next = first; S.B[first].prev = cur;
+        }
+    }
 
     long total = (long)nsteps, th = (long)ntherm;
     long blockLen = total / nblocks;
-    std::vector<double> bN(nblocks, 0), bV(nblocks, 0), bN2(nblocks, 0);
+    const int NO = Sim::NOBS;
+    std::vector<std::array<double, Sim::NOBS>> bs(nblocks);
+    for (auto& a : bs) a.fill(0.0);
     std::vector<long> bn(nblocks, 0);
     long nZ = 0, nAll = 0;
     auto t0 = std::chrono::steady_clock::now();
+    double tth = 0;
     for (long it = 0; it < th + total; it++) {
+        if (it == th) tth = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         S.step();
         if (debug && it % 1000 == 0 && !S.check()) { fprintf(stderr, "INCONSISTENT at %ld\n", it); return 2; }
         if (it >= th && ((it - th) % meas == 0)) {
             nAll++;
             if (!S.worm) {
                 nZ++;
-                double Nn, Vb; S.measure(Nn, Vb);
+                double o[Sim::NOBS]; S.measure(o);
                 int b = (int)std::min<long>((it - th) / blockLen, nblocks - 1);
-                bN[b] += Nn; bV[b] += Vb; bN2[b] += Nn * Nn; bn[b]++;
+                for (int k = 0; k < NO; k++) bs[b][k] += o[k];
+                bn[b]++;
             }
         }
     }
     double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    // block statistics
-    double mN = 0, mV = 0; int nb = 0;
-    std::vector<double> aN, aV;
-    for (int b = 0; b < nblocks; b++) if (bn[b] > 0) { aN.push_back(bN[b] / bn[b]); aV.push_back(bV[b] / bn[b]); }
-    nb = (int)aN.size();
-    for (int b = 0; b < nb; b++) { mN += aN[b]; mV += aV[b]; }
-    mN /= nb; mV /= nb;
-    double eN = 0, eV = 0;
-    for (int b = 0; b < nb; b++) { eN += (aN[b] - mN) * (aN[b] - mN); eV += (aV[b] - mV) * (aV[b] - mV); }
-    eN = std::sqrt(eN / (nb * (nb - 1.0))); eV = std::sqrt(eV / (nb * (nb - 1.0)));
+    // jackknife over blocks; derived: rho_s/rho = <D2>/(2 lam d beta <N>)
+    const int NQ = NO + 1;
+    auto derive = [&](const double* m, double* q) {
+        for (int k = 0; k < NO; k++) q[k] = m[k];
+        q[NO] = m[Sim::O_N] > 0 ? m[Sim::O_D2] / (2.0 * S.lam * DIM * S.beta * m[Sim::O_N]) : 0.0;
+    };
+    double tot[NO] = {0}; long totn = 0; int nb = 0;
+    for (int b = 0; b < nblocks; b++) if (bn[b] > 0) { nb++; totn += bn[b]; for (int k = 0; k < NO; k++) tot[k] += bs[b][k]; }
+    double m[NO], mean[NQ], err[NQ] = {0};
+    for (int k = 0; k < NO; k++) m[k] = tot[k] / totn;
+    derive(m, mean);
+    for (int b = 0; b < nblocks; b++) if (bn[b] > 0) {
+        double mj[NO], qj[NQ];
+        for (int k = 0; k < NO; k++) mj[k] = (tot[k] - bs[b][k]) / (totn - bn[b]);
+        derive(mj, qj);
+        for (int k = 0; k < NQ; k++) err[k] += (qj[k] - mean[k]) * (qj[k] - mean[k]);
+    }
+    for (int k = 0; k < NQ; k++) err[k] = std::sqrt(err[k] * (nb - 1.0) / nb);
     const char* names[10] = {"open", "close", "insert", "remove", "advH", "recH", "advT", "recT", "swap", "stage"};
-    printf("DIM=%d P=%d beta=%g mu=%g C=%g Lmax=%d Lbox=%g omega=%g kappa=%g steps=%.3g\n",
-           DIM, S.P, S.beta, S.mu, S.C, S.Lmax, S.Lbox, S.omega, S.kappa, nsteps);
+    printf("DIM=%d P=%d beta=%g mu=%g C=%g Lmax=%d Lbox=%g omega=%g kappa=%g lam=%g pbc=%d pot=%d eps=%g sig=%g rc=%g steps=%.3g\n",
+           DIM, S.P, S.beta, S.mu, S.C, S.Lmax, S.Lbox, S.omega, S.kappa, S.lam, S.pbc, S.pot, S.eps, S.sig, S.rc, nsteps);
     printf("RESULT N= %.5f +- %.5f   Vbar= %.5f +- %.5f   Zfrac= %.4f   time=%.1fs\n",
-           mN, eN, mV, eV, nAll ? (double)nZ / nAll : 0.0, secs);
+           mean[Sim::O_N], err[Sim::O_N], mean[Sim::O_V], err[Sim::O_V], nAll ? (double)nZ / nAll : 0.0, secs);
+    printf("TIMING therm=%.2fs prod=%.2fs prod_rate=%.4g steps/s\n", tth, secs - tth, total / (secs - tth));
+    printf("RESULT2 E= %.5f +- %.5f   D2= %.5f +- %.5f   rhos= %.5f +- %.5f\n",
+           mean[Sim::O_E], err[Sim::O_E], mean[Sim::O_D2], err[Sim::O_D2], mean[NO], err[NO]);
     printf("acceptance:");
     for (int i = 0; i < 10; i++) printf(" %s=%.3f(%ld)", names[i], S.att[i] ? (double)S.acc[i] / S.att[i] : 0.0, S.att[i]);
     printf("\n");

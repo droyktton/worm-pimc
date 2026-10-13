@@ -18,6 +18,7 @@ For each eigenvalue lambda of the permutation matrix and mode frequency w_k:
     PA (P slices): lam0(w_k)^P / (1 - lambda rho(w_k)^P)
 where the primitive-approximation kernel of a 1D oscillator has eigenvalues lam0*rho^n
 (Mehler formula):  rho + 1/rho = 2 + tau^2 w^2.
+<E>: thermodynamic estimator, -d ln Xi/d beta at fixed P and mu, plus mu<N>.
 <V> (mean over slices of the potential energy) = -(1/beta) d ln Z / d s at s=1 where
 the potential is scaled by s (w^2 -> s w^2, kappa -> s kappa).
 """
@@ -97,7 +98,12 @@ def observables(beta, mu, d, omega, kappa, P, Nmax=12):
     lm = math.log(grand(beta, mu, d, omega, kappa, P, Nmax, 1 - h)[0])
     Vbar = -(lp - lm) / (2 * h) / beta
     tail = ZNs[-1] / Z
-    return Nav, Vbar, tail
+    # thermodynamic energy at fixed P and mu: <E> = -d ln Xi/d beta + mu <N>
+    hb = 1e-5 * beta
+    lbp = math.log(grand(beta + hb, mu, d, omega, kappa, P, Nmax)[0])
+    lbm = math.log(grand(beta - hb, mu, d, omega, kappa, P, Nmax)[0])
+    E = -(lbp - lbm) / (2 * hb) + mu * Nav
+    return Nav, Vbar, tail, E
 
 
 if __name__ == "__main__":
@@ -111,5 +117,5 @@ if __name__ == "__main__":
     ap.add_argument("--Nmax", type=int, default=12)
     a = ap.parse_args()
     for label, P in (("PA  P=%d" % a.P, a.P), ("continuum", None)):
-        N, V, tl = observables(a.beta, a.mu, a.d, a.omega, a.kappa, P, a.Nmax)
-        print("%-12s <N> = %.5f   <Vbar> = %.5f   (weight of N=Nmax: %.1e)" % (label, N, V, tl))
+        N, V, tl, E = observables(a.beta, a.mu, a.d, a.omega, a.kappa, P, a.Nmax)
+        print("%-12s <N> = %.5f   <Vbar> = %.5f   (weight of N=Nmax: %.1e)   <E> = %.5f" % (label, N, V, tl, E))
