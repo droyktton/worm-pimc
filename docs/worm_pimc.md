@@ -23,16 +23,18 @@ This document describes the physical models, the method, the implementation (CPU
 
 We consider $N$ identical bosons of mass $m$ in $d = 1, 2, 3$ dimensions (compile-time `DIM`):
 
-$$
+```math
 H \;=\; -\lambda \sum_{i=1}^{N} \nabla_i^2 \;+\; \sum_{i=1}^{N} V_{\rm ext}(\mathbf r_i) \;+\; \sum_{i<j} v\big(|\mathbf r_i - \mathbf r_j|\big),
 \qquad \lambda = \frac{\hbar^2}{2m}.
-$$
+```
 
 The default is $\hbar = m = 1$, that is $\lambda = 1/2$ (parameter `lam`).
 
 **External potential** (parameter `omega`, $V_{\rm ext} = 0$ when `omega=0`):
 
-$$ V_{\rm ext}(\mathbf r) = \tfrac12\,\omega^2 r^2 . $$
+```math
+V_{\rm ext}(\mathbf r) = \tfrac12\,\omega^2 r^2 .
+```
 
 **Pair potentials** (parameter `pot`):
 
@@ -44,15 +46,15 @@ $$ V_{\rm ext}(\mathbf r) = \tfrac12\,\omega^2 r^2 . $$
 
 The Aziz HFDHE2 potential [5] is
 
-$$
+```math
 v(r) = \epsilon\left[A\,e^{-\alpha x} - F(x)\left(\frac{C_6}{x^6} + \frac{C_8}{x^8} + \frac{C_{10}}{x^{10}}\right)\right],
 \qquad x = \frac{r}{r_m},
 \qquad F(x) = \begin{cases} e^{-(D/x - 1)^2} & x < D \\ 1 & x \ge D \end{cases}
-$$
+```
 
 with $\epsilon = 10.8$ K, $r_m = 2.9673$ Å, $A = 0.5448504\times10^6$, $\alpha = 13.353384$, $D = 1.241314$, $C_6 = 1.3732412$, $C_8 = 0.4253785$ and $C_{10} = 0.1781$.
 
-All pair potentials are **truncated** (not shifted) at the cutoff `rc`: $v(r) = 0$ for $r > r_c$. No tail corrections are applied.
+All pair potentials are **truncated** (not shifted) at the cutoff `rc`: $v(r) = 0$ for $r \gt r_c$. No tail corrections are applied.
 
 **Boundary conditions.** Two options:
 
@@ -65,19 +67,19 @@ All pair potentials are **truncated** (not shifted) at the cutoff `rc`: $v(r) = 
 
 **Grand partition function.** In the grand-canonical ensemble at temperature $T = 1/\beta$ and chemical potential $\mu$,
 
-$$
+```math
 \Xi = \sum_{N} \frac{e^{\beta\mu N}}{N!} \sum_{\mathcal P\in S_N} \int d\mathbf R\; \langle \mathbf R \,|\, e^{-\beta H} \,|\, \mathcal P \mathbf R\rangle ,
-$$
+```
 
 where $\mathcal P$ runs over the permutations of the particle labels.
 
 **Primitive approximation.** Imaginary time is split into $P$ slices of width $\tau = \beta/P$ (parameter `P`), and each short-time density matrix is replaced by
 
-$$
+```math
 \rho(\mathbf R, \mathbf R'; \tau) \;\approx\; \prod_i \rho_0(\mathbf r_i, \mathbf r'_i; \tau)\; e^{-\tau V(\mathbf R)} ,
 \qquad
 \rho_0(\mathbf r, \mathbf r'; t) = (4\pi\lambda t)^{-d/2} \exp\!\left[-\frac{|\mathbf r - \mathbf r'|^2}{4\lambda t}\right],
-$$
+```
 
 with a systematic error of $O(\tau^2)$ in thermodynamic averages [2].
 
@@ -85,11 +87,11 @@ with a systematic error of $O(\tau^2)$ in thermodynamic averages [2].
 
 **Configuration weight.** The weight of a configuration $X$ is
 
-$$
+```math
 W(X) = C^{\,[X\in G]}\; \prod_{\text{beads}} e^{\mu\tau}\; \prod_{\text{links}} \rho_0(\Delta\mathbf r; \tau)\; \prod_{k=0}^{P-1} e^{-\tau V_k},
 \qquad
 V_k = \sum_{b\in k} V_{\rm ext}(\mathbf r_b) + \sum_{\substack{b<b'\\ b,b'\in k}} v(|\mathbf r_b-\mathbf r_{b'}|).
-$$
+```
 
 In the sector of closed worldlines (the **Z sector**) the number of beads is $N_b = NP$, so $\prod e^{\mu\tau} = e^{\beta\mu N}$ and $W$ is the primitive-approximation integrand of $\Xi$.
 
@@ -116,31 +118,31 @@ The two members of every complementary pair have the same selection probability,
 
 **Notation.**
 
-- $\Delta V_{\rm new}$ ($\Delta V_{\rm old}$) is the potential energy of the beads that are added (removed). Each bead contributes $U(b) = V_{\rm ext}(\mathbf r_b) + \sum_{b'\in k_b,\, b'\ne b} v(|\mathbf r_b - \mathbf r_{b'}|)$, and for a re-sampled segment the difference new − old is used.
+- $\Delta V_{\rm new}$ ($\Delta V_{\rm old}$) is the potential energy of the beads that are added (removed). Each bead contributes $`U(b) = V_{\rm ext}(\mathbf r_b) + \sum_{b'\in k_b,\, b'\ne b} v(\lvert \mathbf r_b - \mathbf r_{b'}\rvert )`$, and for a re-sampled segment the difference new − old is used.
 - $\bar\rho_0$ is the image-summed free propagator (Section 3.2). Without pbc, $\bar\rho_0 = \rho_0$.
 - Acceptance is $A = \min(1, \cdot)$ of the quantities below.
 
 | Move | Proposal | Acceptance ratio |
 |---|---|---|
-| **Open** (Z→G) | Pick a bead $\mathcal I$ uniformly among the $N_b$ beads and $m\in\lbrace 1,\dots,L_{\max}\rbrace$ uniformly; delete the $m-1$ beads following $\mathcal I$. The bead $m$ links ahead becomes the tail $\mathcal M$. | $\dfrac{C\, N_b\, L_{\max}\; e^{-(m-1)\mu\tau}\; e^{+\tau\Delta V_{\rm old}}}{\bar\rho_0(\mathbf r_{\mathcal I}, \mathbf r_{\mathcal M}; m\tau)}$ |
-| **Close** (G→Z) | Allowed if the slice gap $g$ from $\mathcal I$ to $\mathcal M$ is $\le L_{\max}$. Choose a periodic image of $\mathcal M$ with probability $\propto \rho_0$, then generate the $g-1$ beads with a Lévy bridge. | $\dfrac{\bar\rho_0(\mathbf r_{\mathcal I}, \mathbf r_{\mathcal M}; g\tau)\; e^{(g-1)\mu\tau}\; e^{-\tau\Delta V_{\rm new}}}{C\, N_b'\, L_{\max}}$, with $N_b'$ the number of beads after closing |
-| **Insert** (Z→G) | Uniform slice ($P$ choices); $\ell \in\lbrace 0,\dots,L_{\max}-1\rbrace$ links uniformly; first bead uniform in the box of volume $V=L^d$; the remaining $\ell$ beads by free Gaussian steps. | $C\, V\, P\, L_{\max}\; e^{(\ell+1)\mu\tau}\; e^{-\tau\Delta V_{\rm new}}$ |
+| **Open** (Z→G) | Pick a bead $\mathcal I$ uniformly among the $N_b$ beads and $m\in\lbrace 1,\dots,L_{\max}\rbrace$ uniformly; delete the $m-1$ beads following $\mathcal I$. The bead $m$ links ahead becomes the tail $\mathcal M$. | $`\dfrac{C\, N_b\, L_{\max}\; e^{-(m-1)\mu\tau}\; e^{+\tau\Delta V_{\rm old}}}{\bar\rho_0(\mathbf r_{\mathcal I}, \mathbf r_{\mathcal M}; m\tau)}`$ |
+| **Close** (G→Z) | Allowed if the slice gap $g$ from $\mathcal I$ to $\mathcal M$ is $\le L_{\max}$. Choose a periodic image of $\mathcal M$ with probability $\propto \rho_0$, then generate the $g-1$ beads with a Lévy bridge. | $`\dfrac{\bar\rho_0(\mathbf r_{\mathcal I}, \mathbf r_{\mathcal M}; g\tau)\; e^{(g-1)\mu\tau}\; e^{-\tau\Delta V_{\rm new}}}{C\, N_b'\, L_{\max}}`$, with $N_b'$ the number of beads after closing |
+| **Insert** (Z→G) | Uniform slice ($P$ choices); $\ell \in\lbrace 0,\dots,L_{\max}-1\rbrace$ links uniformly; first bead uniform in the box of volume $V=L^d$; the remaining $\ell$ beads by free Gaussian steps. | $`C\, V\, P\, L_{\max}\; e^{(\ell+1)\mu\tau}\; e^{-\tau\Delta V_{\rm new}}`$ |
 | **Remove** (G→Z) | Only if the worm has $\le L_{\max}$ beads and the tail lies inside the box; delete the whole worm. | inverse of Insert, with $\Delta V_{\rm old}$ |
-| **Advance** (head or tail) | $m\in\lbrace 1,\dots,L_{\max}\rbrace$ new beads by free Gaussian steps from the head (forward) or the tail (backward). | $e^{m\mu\tau}\, e^{-\tau\Delta V_{\rm new}}$ |
-| **Recede** (head or tail) | Delete $m\in\lbrace 1,\dots,L_{\max}\rbrace$ beads from the head or tail; the worm must keep at least one bead. | $e^{-m\mu\tau}\, e^{+\tau\Delta V_{\rm old}}$ |
-| **Swap** | Choose $m\in\lbrace 1,\dots,L_{\max}\rbrace$. The candidates $\Omega$ are the beads $j$ on slice $k_{\mathcal I}+m$ whose $m$-th predecessor $q$ exists. Pick $j$ with probability $\bar\rho_0(\mathbf r_{\mathcal I},\mathbf r_j;m\tau)/\Sigma_{\mathcal I}$; delete the $m-1$ beads between $q$ and $j$; bridge $\mathcal I \to j$; $q$ becomes the new head. | $\dfrac{\Sigma_{\mathcal I}}{\Sigma_q}\, e^{-\tau(\Delta V_{\rm new} - \Delta V_{\rm old})}$, where $\Sigma_x = \sum_{j\in\Omega} \bar\rho_0(\mathbf r_x, \mathbf r_j; m\tau)$ |
+| **Advance** (head or tail) | $m\in\lbrace 1,\dots,L_{\max}\rbrace$ new beads by free Gaussian steps from the head (forward) or the tail (backward). | $`e^{m\mu\tau}\, e^{-\tau\Delta V_{\rm new}}`$ |
+| **Recede** (head or tail) | Delete $m\in\lbrace 1,\dots,L_{\max}\rbrace$ beads from the head or tail; the worm must keep at least one bead. | $`e^{-m\mu\tau}\, e^{+\tau\Delta V_{\rm old}}`$ |
+| **Swap** | Choose $m\in\lbrace 1,\dots,L_{\max}\rbrace$. The candidates $\Omega$ are the beads $j$ on slice $k_{\mathcal I}+m$ whose $m$-th predecessor $q$ exists. Pick $j$ with probability $\bar\rho_0(\mathbf r_{\mathcal I},\mathbf r_j;m\tau)/\Sigma_{\mathcal I}$; delete the $m-1$ beads between $q$ and $j$; bridge $\mathcal I \to j$; $q$ becomes the new head. | $`\dfrac{\Sigma_{\mathcal I}}{\Sigma_q}\, e^{-\tau(\Delta V_{\rm new} - \Delta V_{\rm old})}`$, where $\Sigma_x = \sum_{j\in\Omega} \bar\rho_0(\mathbf r_x, \mathbf r_j; m\tau)$ |
 | **Staging** (any sector) | Pick a random bead $a$ and $m\in\lbrace 2,\dots,L_{\max}\rbrace$ links; the segment must not contain the head. Re-sample the $m-1$ interior beads with a Lévy bridge, keeping both endpoints and the segment's end-to-end displacement. | $e^{-\tau(\Delta V_{\rm new} - \Delta V_{\rm old})}$ |
 
 In every move the kinetic weight cancels exactly against the proposal density; only potential energy, chemical potential and normalisations remain. For Insert and Advance, the free Gaussian steps reproduce $\prod\rho_0$. For bridges, see below.
 
 **Lévy bridge** [3]. The $m-1$ interior points between $\mathbf a$ (slice 0) and the endpoint $\mathbf b$ (slice $m$) are generated sequentially:
 
-$$
+```math
 \mathbf r_j = \mathbf r_{j-1} + \frac{\mathbf b - \mathbf r_{j-1}}{m-j+1} + \sqrt{2\lambda\tau\,\frac{m-j}{m-j+1}}\;\boldsymbol\xi_j,
 \qquad \boldsymbol\xi_j \sim \mathcal N(0, 1)^d .
-$$
+```
 
-The joint density of the bridge is $\prod_{\rm links}\rho_0 \,/\, \rho_0(\mathbf b - \mathbf a; m\tau)$.
+The joint density of the bridge is $`\prod_{\rm links}\rho_0 \,/\, \rho_0(\mathbf b - \mathbf a; m\tau)`$.
 
 ### 3.2 Periodic boundary conditions
 
@@ -148,10 +150,10 @@ With pbc every link displacement is taken as the minimum image. This requires $\
 
 The displacement over $m \le L_{\max}$ links, however, need not be small compared with $L$. Its periodic images then all contribute. The code therefore uses the image-summed propagator, which factorises over Cartesian components:
 
-$$
+```math
 \bar\rho_0(\mathbf r, \mathbf r'; t) = \prod_{\alpha=1}^{d} \frac{1}{\sqrt{4\pi\lambda t}} \sum_{n=-2}^{2} \exp\!\left[-\frac{(x_\alpha + nL)^2}{4\lambda t}\right],
 \qquad x_\alpha = \mathrm{mimg}(r'_\alpha - r_\alpha).
-$$
+```
 
 - **Close and Swap** pick the image $n$ of each component with probability $\propto$ its term, and then build the bridge towards that unwrapped point. The probability of proposing a given path is then $\prod\rho_0(\text{links}) / \bar\rho_0$, which is why $\bar\rho_0$ appears in the acceptance ratios of Open, Close and Swap.
 - **Staging** keeps the *actual* end-to-end displacement of the old segment, i.e. the sum of its minimum-image links. Staging therefore never changes the winding number, and the move stays symmetric.
@@ -168,9 +170,9 @@ All estimators are accumulated in the Z sector every `meas` steps.
 |---|---|
 | Particle number | $N = N_b / P$ |
 | Potential energy | $\bar V = \frac1P\sum_{k} V_k$ |
-| Thermodynamic energy | $E = \frac{1}{P}\left[\frac{d\,N_b}{2\tau} - \sum_{\rm links}\frac{\lvert\Delta\mathbf r\rvert^2}{4\lambda\tau^2}\right] + \bar V$ |
+| Thermodynamic energy | $`E = \frac{1}{P}\left[\frac{d\,N_b}{2\tau} - \sum_{\rm links}\frac{\lvert\Delta\mathbf r\rvert^2}{4\lambda\tau^2}\right] + \bar V`$ |
 | Winding | $\mathbf D = \sum_{\rm links}\Delta\mathbf r$ (minimum image), reported as $D^2 = \lvert\mathbf D\rvert^2$ |
-| Superfluid fraction | $\rho_s/\rho = \dfrac{\langle D^2\rangle}{2\lambda\, d\,\beta\,\langle N\rangle}$ |
+| Superfluid fraction | $`\rho_s/\rho = \dfrac{\langle D^2\rangle}{2\lambda\, d\,\beta\,\langle N\rangle}`$ |
 | Exchange cycles | $n_j$ = number of particles in permutation cycles of length $j$, for $j = 1,\dots,11$; the last bin collects $j\ge12$, and $\sum_j n_j = N$ |
 
 **Energy.** The thermodynamic estimator is $-\partial_\beta$ of $\ln W$ at fixed $P$ and fugacity. In the Z sector the number of links equals $N_b$, so its average equals the internal energy of the discretised system *exactly* (no Trotter error relative to the PA reference).
@@ -208,7 +210,7 @@ The PA version describes *exactly the same discretisation the Monte Carlo sample
 
 The weight of $N = N_{\max}$ is printed to check the truncation.
 
-**Exchange cycles.** Each term of the sum over cycle types is the weight of that cycle type in $Z_N$. Hence $\langle n_j\rangle = \Xi^{-1}\sum_N e^{\beta\mu N}\sum_{\rm types} j\, m_j\, Z_N^{\rm (type)}$ is exact too, both for the PA and in the continuum (`--cycles`, with `--J` bins).
+**Exchange cycles.** Each term of the sum over cycle types is the weight of that cycle type in $Z_N$. Hence $`\langle n_j\rangle = \Xi^{-1}\sum_N e^{\beta\mu N}\sum_{\rm types} j\, m_j\, Z_N^{\rm (type)}`$ is exact too, both for the PA and in the continuum (`--cycles`, with `--J` bins).
 
 ### 5.2 Ideal Bose gas in a periodic box (`exact_ideal.py`)
 
@@ -216,25 +218,25 @@ The weight of $N = N_{\max}$ is printed to check the truncation.
 
 **Cycle expansion.** The grand potential is
 
-$$
+```math
 \ln\Xi = \sum_{j\ge1}\frac{e^{\beta\mu j}}{j}\, z(j)^d,
 \qquad
 z(j) = \sum_{w\in\mathbb Z} z(j,w),
 \qquad
 z(j,w) = \frac{L}{\sqrt{4\pi\lambda j\beta}}\, e^{-(wL)^2/4\lambda j\beta}.
-$$
+```
 
 Here $z(j,w)$ is the 1D single-particle trace at imaginary time $j\beta$ with winding number $w$.
 
 **Observables.** Exchange cycles of length $j$ and winding vector $\mathbf w$ are independent Poisson variables, which gives
 
-$$
+```math
 \langle N\rangle = \sum_j e^{\beta\mu j} z(j)^d,
 \qquad
 \langle D^2\rangle = \sum_j \frac{e^{\beta\mu j}}{j}\, d\, L^2 \Big(\sum_w w^2 z(j,w)\Big)\, z(j)^{d-1},
 \qquad
 E = -\partial_\beta\ln\Xi|_\mu + \mu\langle N\rangle .
-$$
+```
 
 The mean number of particles in cycles of length $j$ is the $j$-th term of $\langle N\rangle$, $\langle n_j\rangle = e^{\beta\mu j} z(j)^d$ (`--cycles`).
 
@@ -344,7 +346,7 @@ acceptance: open=... close=... insert=... remove=... advH=... recH=... advT=... 
   - Example: the ideal Bose gas at $T=0.5$, where the condensate occupation fluctuates strongly and slowly, gave $\langle N\rangle = 7.77(6)$ instead of 8 with `therm=5e4`; with `therm=5e5` it gave 8.02(5).
   - Check by repeating with a larger `therm` (or a different `N0`).
   - For large $N$ use fewer, longer replicas, and start from `N0` near the expected particle number.
-- **`SM`:** use $\gtrsim 1.5\,N + 32$ and check that `overflow=0`.
+- **`SM`:** use $`\gtrsim 1.5\,N + 32`$ and check that `overflow=0`.
 
 ---
 
@@ -642,7 +644,7 @@ Throughput saturates at about 32k replicas.
 ### 10.3 Hardware notes
 
 - **FP64.** GeForce GPUs execute FP64 at 1/64 of the FP32 rate, hence the 3–7× gain of `-DUSE_FLOAT`. Single precision passes every validation test above.
-- **Memory.** Device memory per replica is about $NB\,(d\cdot{\rm sizeof(real)} + 28) + 4P(SM+1)$ bytes. The program checks the free memory before allocating, and refuses to start if it does not fit.
+- **Memory.** Device memory per replica is about $`NB\,(d\cdot{\rm sizeof(real)} + 28) + 4P(SM+1)`$ bytes. The program checks the free memory before allocating, and refuses to start if it does not fit.
 - **Shared GPUs.** On shared nodes, other processes may hold device memory.
 
 ---
