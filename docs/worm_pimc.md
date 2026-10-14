@@ -171,8 +171,11 @@ All estimators are accumulated in the Z sector every `meas` steps.
 | Thermodynamic energy | $E = \frac{1}{P}\left[\frac{d\,N_b}{2\tau} - \sum_{\rm links}\frac{|\Delta\mathbf r|^2}{4\lambda\tau^2}\right] + \bar V$ |
 | Winding | $\mathbf D = \sum_{\rm links}\Delta\mathbf r$ (minimum image), reported as $D^2 = \lvert\mathbf D\rvert^2$ |
 | Superfluid fraction | $\rho_s/\rho = \dfrac{\langle D^2\rangle}{2\lambda\, d\,\beta\,\langle N\rangle}$ |
+| Exchange cycles | $n_j$ = number of particles in permutation cycles of length $j$, for $j = 1,\dots,11$; the last bin collects $j\ge12$, and $\sum_j n_j = N$ |
 
 **Energy.** The thermodynamic estimator is $-\partial_\beta$ of $\ln W$ at fixed $P$ and fugacity. In the Z sector the number of links equals $N_b$, so its average equals the internal energy of the discretised system *exactly* (no Trotter error relative to the PA reference).
+
+**Exchange cycles.** A closed worldline of $j$ particles has $jP$ beads and crosses slice 0 exactly $j$ times. The estimator walks the loop from every bead of slice 0 and adds 1 to bin $j$ = (loop length)/$P$, so each cycle of length $j$ contributes $j$ to $n_j$. The number of bins is the compile-time constant `NCYC` = 12.
 
 **Superfluid fraction.** This is the Pollock–Ceperley winding-number estimator [4], $\rho_s/\rho = m\langle W^2\rangle L^2/(d\hbar^2\beta N)$ with $\mathbf D = L\mathbf W$. In the grand-canonical ensemble the ratio of averages is used.
 
@@ -205,6 +208,8 @@ The PA version describes *exactly the same discretisation the Monte Carlo sample
 
 The weight of $N = N_{\max}$ is printed to check the truncation.
 
+**Exchange cycles.** Each term of the sum over cycle types is the weight of that cycle type in $Z_N$. Hence $\langle n_j\rangle = \Xi^{-1}\sum_N e^{\beta\mu N}\sum_{\rm types} j\, m_j\, Z_N^{\rm (type)}$ is exact too, both for the PA and in the continuum (`--cycles`, with `--J` bins).
+
 ### 5.2 Ideal Bose gas in a periodic box (`exact_ideal.py`)
 
 **Why it is exact for the PA.** For free particles the primitive approximation is exact. The only difference from the sampled weight is the minimum-image truncation of single links, of order $e^{-L^2/16\lambda\tau}$.
@@ -230,6 +235,8 @@ $$
 \qquad
 E = -\partial_\beta\ln\Xi|_\mu + \mu\langle N\rangle .
 $$
+
+The mean number of particles in cycles of length $j$ is the $j$-th term of $\langle N\rangle$, $\langle n_j\rangle = e^{\beta\mu j} z(j)^d$ (`--cycles`).
 
 ---
 
@@ -321,6 +328,7 @@ If a parameter is given more than once, the last occurrence wins.
 RESULT N= <N> +- err   Vbar= ... +- ...   Zfrac= ...   time=...s  [GPU: rate=... steps/s  overflow=...]
 TIMING therm=...s prod=...s prod_rate=... steps/s
 RESULT2 E= ... +- ...   D2= ... +- ...   rhos= ... +- ...
+CYCLES n1= ... +- ... n2= ... +- ... ... n11= ... +- ... n12+= ... +- ...
 acceptance: open=... close=... insert=... remove=... advH=... recH=... advT=... recT=... swap=... stage=...
 ```
 
@@ -480,9 +488,54 @@ Of the 36 Monte Carlo numbers above, only one deviates by more than 2σ (2.4σ, 
 - **Overflows.** In the 1D case and in the 3D β=2 case, a few hundred to ~1500 moves (out of ~$4\times10^9$) were rejected for exceeding `SM`=64. This samples a truncated ensemble, and the effect is negligible here.
 - **The image-sum fix.** The last case is the one that exposed the nearest-image bug (Section 3.2): before the fix the CPU gave E = 1.69 and ρs/ρ = 0.81.
 
-### 9.3 Interacting system: GPU versus CPU
+### 9.3 Trotter scan (`validation/trotter.sh`)
 
-3D Lennard-Jones: $\lambda=0.05$, $T=1$, $P=32$, $\mu=0$, $L=3.379\sigma$, $r_c=L/2$, start from $N_0=27$. The CPU reference is 12 independent seeds × $1.1\times10^8$ steps (`ref_lj_cpu.sh`). The GPU runs use `W=32` with 2048 replicas × $2\times10^6$ steps (`lj_gpu.sh`, `lj_float.sh`).
+This test checks the discretisation itself. The setup is the trap with harmonic coupling ($\omega=1$, $\kappa=0.3$, $\beta=2$) at $P = 4, 6, 8, 12, 16, 24, 32, 48, 64$, so that $\tau$ runs from 0.5 to 0.031.
+
+- **Runs.** GPU `W=1`, double precision, $R = 32768$ replicas × $4\times10^5$ steps after $2\times10^5$ thermalisation steps, $L_{\max} = \min(P-2, 8)$.
+- **G-sector weight.** $C$ is scaled as $(16/P)^2$ so that Zfrac stays roughly constant. With a fixed $C$, Zfrac fell to ~0.007 at $P=64$ and the replicas were under-thermalised.
+- **Two references.** At every $P$ the Monte Carlo is compared with the exact PA result at the *same* $P$ (a strict test). The $\tau\to0$ extrapolation of the Monte Carlo is compared with the exact continuum result.
+
+| d | μ | C at P=16 | MC vs exact PA, N at all 9 P: χ²/dof (p) | largest deviation (N, V̄, E and n₁…n₆₊, all P) | N at τ→0: MC / exact | E at τ→0: MC / exact |
+|---|---|---|---|---|---|---|
+| 1 | 0.5 | 3·10⁻³ | 12.0/9 (0.21) | −2.6σ (n₅, P=4) | 1.63239(32) / 1.63284 | 1.12858(30) / 1.12874 |
+| 2 | 1.5 | 3·10⁻⁴ | 12.0/9 (0.22) | +2.2σ (V̄, P=8) | 2.76198(45) / 2.76133 | 3.92677(77) / 3.92561 |
+| 3 | 2.0 | 10⁻⁴ | 17.6/9 (0.04) | +2.4σ (n₂, P=8) | 2.00425(34) / 2.00506 | 4.10473(84) / 4.10512 |
+
+The τ→0 columns come from a weighted fit $a + b\tau^2$ to the points with $\tau \le 1/6$ ($P \ge 12$).
+
+![Trotter scan](figures/val_trotter.png)
+
+- **The PA is resolved exactly.** At $P=4$ the Trotter error of $\langle N\rangle$ is 0.07–0.18, i.e. several hundred standard errors, and the Monte Carlo still agrees with the PA at the same $P$. Across all $P$ and observables (243 numbers) no deviation exceeds 2.6σ.
+- **The τ² law and the continuum limit.** The extrapolations agree with the exact continuum within 1.6σ, except $\langle N\rangle$ in 3D (−2.3σ).
+- **The 3D case.** The 3D scan has p = 0.04 for N, and its extrapolated N is 2.3σ low. Both are borderline. A second independent 3D scan (`TAG=_run2 SEEDOFF=1000`) has been prepared to decide whether this is a fluctuation; it has not been run yet.
+
+### 9.4 Exchange cycles of the ideal gas (`validation/cycles_ideal.sh`)
+
+This test checks the permutation sampling directly: the full distribution $\langle n_j\rangle$ against the exact cycle expansion (Section 5.2).
+
+- **Runs.** GPU `W=1` in double and float, $P=24$, $\lambda=1/2$, $L_{\max}=8$, $R=16384$ replicas × $4\times10^5$ steps after $2\times10^5$ thermalisation steps.
+- **Cases.** The four cases include one close to condensation: 3D, $\beta=1.25$, $L=4$, $\langle N\rangle = 8$, where 14% of the particles are in cycles longer than 11.
+- **Test statistic.** Each χ² is over 15 numbers: N, E, ρs/ρ and the 12 bins $n_1 \ldots n_{\ge12}$.
+
+| case | C | Zfrac | double: χ²/dof (p), max dev. | float: χ²/dof (p), max dev. |
+|---|---|---|---|---|
+| 1D, β=1, μ=−0.2, L=4 | 10⁻³ | 0.080 | 18.0/15 (0.26), 1.8σ | 15.0/15 (0.45), 1.9σ |
+| 2D, β=1, μ=−0.3, L=4 | 10⁻³ | 0.032 | 19.0/15 (0.21), 2.9σ | 15.6/15 (0.41), 2.4σ |
+| 3D, β=2, μ=−0.1, L=3 | 10⁻⁴ | 0.114 | 12.6/15 (0.64), 1.9σ | 10.9/15 (0.76), 1.5σ |
+| 3D, β=1.25, μ=−0.122, L=4 | 10⁻⁵ | 0.293 | 12.6/15 (0.63), 1.6σ | 13.2/15 (0.59), 1.7σ |
+
+No overflows occurred in any of these runs. Of the 120 numbers, four lie beyond 2σ (all in the 2D case, at most 2.9σ), against about six expected for Gaussian errors.
+
+![Exchange-cycle occupations](figures/val_cycles.png)
+
+The table with every bin is printed by `python3 validation/analyze.py cycles`.
+
+### 9.5 Interacting systems: GPU versus CPU
+
+No exact result exists for an interacting many-body system, so here the GPU code is compared with the independent CPU implementation.
+
+**Small system (N ≈ 21).** 3D Lennard-Jones: $\lambda=0.05$, $T=1$, $P=32$, $\mu=0$, $L=3.379\sigma$, $r_c=L/2$, start from $N_0=27$. The CPU reference is 12 independent seeds × $1.1\times10^8$ steps (`ref_lj_cpu.sh`). The GPU runs use `W=32` with 2048 replicas × $2\times10^6$ steps (`lj_gpu.sh`, `lj_float.sh`).
 
 | | CPU | GPU W=32 double | GPU W=32 float |
 |---|---|---|---|
@@ -490,13 +543,59 @@ Of the 36 Monte Carlo numbers above, only one deviates by more than 2σ (2.4σ, 
 | V̄ | −51.742(47) | −51.710(26) | −51.724(33) |
 | E | 2.951(58) | 2.973(27) | 2.953(21) |
 
-### 9.4 Internal consistency
+**N ≈ 100 (`validation/lj100_*.sh`).** Both systems are 3D Lennard-Jones ($\varepsilon = \sigma = 1$, $r_c = 2.5\sigma$) at $T=1$ with $P=32$:
+
+| system | λ | μ | L | ρσ³ | ρs/ρ | C | SM |
+|---|---|---|---|---|---|---|---|
+| A: dense liquid, no exchange | 0.05 | 1 | 5.4σ | 0.64 | 0 | 10⁻⁴ | 192 |
+| B: degenerate gas (thermal wavelength 2.5σ), superfluid crossover | 0.5 | 3 | 8σ | 0.18 | 0.41 | 10⁻⁷ | 224 |
+
+- **CPU reference.** 56 independent seeds × $2\times10^8$ steps after $2\times10^7$ (A) or $4\times10^7$ (B) thermalisation steps. Half of the seeds start from an $N_0=100$ lattice, half from $N_0=64$. The error is the standard error over seeds.
+- **GPU runs.** `W=32`, 512 replicas × $10^7$ steps after $10^7$ thermalisation steps, in double and in float, each from $N_0=100$ and from $N_0=64$.
+- **Equilibration check.** The two starts agree in every column (`analyze.py lj100` prints them separately).
+
+The table combines the two starts of each precision (inverse-variance mean).
+
+| | A: CPU | A: GPU double | A: GPU float | B: CPU | B: GPU double | B: GPU float |
+|---|---|---|---|---|---|---|
+| N | 101.433(13) | 101.413(13) | 101.394(13) | 90.590(11) | 90.583(14) | 90.593(13) |
+| V̄ | −353.827(91) | −353.701(95) | −353.600(95) | −47.188(12) | −47.181(16) | −47.185(15) |
+| E | −45.583(77) | −45.583(67) | −45.627(72) | 140.721(92) | 140.538(88) | 140.850(87) |
+| ρs/ρ | 0 | 0 | 0 | 0.41232(85) | 0.41471(80) | 0.41231(71) |
+| n₁ | = N | = N | = N | 63.766(26) | 63.706(23) | 63.783(24) |
+| n₂ | 0 | 0 | 0 | 3.8507(73) | 3.8397(62) | 3.8373(68) |
+| n₍≥12₎ | 0 | 0 | 0 | 12.901(31) | 12.987(24) | 12.927(29) |
+
+![GPU versus CPU at N ≈ 100](figures/val_lj100.png)
+
+- **System A** is a dense liquid at $\lambda = 0.05$ with no exchange. All numbers agree within 2.1σ (float N). Note that V̄ is shifted by +1.0σ (double) and +1.7σ (float), in the same direction in both precisions.
+- **System B, float.** All 16 numbers agree with the CPU: χ²/dof = 1.1/4 for N, V̄, E, ρs and 8.3/12 for the cycle bins.
+- **System B, double.** χ²/dof is 6.5/4 for N, V̄, E, ρs and 15.7/12 for the cycle bins. The largest deviations are ρs/ρ (+2.0σ) and $n_{\ge12}$ (+2.2σ). Both come from the $N_0=100$ run (+2.3σ and +2.6σ); the $N_0=64$ run agrees (χ² = 2.4/4).
+- **What this means.** Long cycles and the winding are the slowest observables, so an under-thermalised run or a statistical fluctuation are the most likely explanations. Float, which uses the same code path, agrees. Two more independent double and float runs of B (`TAG=_s1`, `_s2`) have been prepared to settle it.
+
+### 9.6 Internal consistency
 
 `test_warp.sh` checks the GPU code itself:
 
 - Same-seed runs of `W=1`, `W=32` and `W=32` with the other memory layout give bit-identical results, in the trap (2D, κ=0.3), the 3D ideal gas and 3D Lennard-Jones (N≈27).
 - The list-consistency checks (`debug=1`) pass.
 - `compute-sanitizer` reports 0 errors in both modes.
+
+### 9.7 Reproducing the validation
+
+The scripts in `validation/` write their raw output to `validation/out/`. Run them from the repository root:
+
+```bash
+sbatch -p gpu --gres=gpu:1 validation/trotter.sh 1 0.5 3e-3      # also: 2 1.5 3e-4 and 3 2.0 1e-4
+sbatch -p gpu --gres=gpu:1 validation/cycles_ideal.sh
+sbatch -p cpu -N1 --exclusive validation/lj100_cpu.sh A           # B: add --export=ALL,THERM=4e7,MEAS=100
+sbatch -p gpu --gres=gpu:1 validation/lj100_gpu.sh A double       # A|B, double|float
+python3 validation/analyze.py      # summary tables (markdown); trotter | cycles | lj100
+python3 validation/figures.py      # docs/figures/val_*.png
+```
+
+- **Extra runs.** `TAG` (a suffix of the output file) and `SEEDOFF` (a seed offset) add independent runs. `analyze.py` combines the extra GPU runs of `lj100_gpu.sh` with the others, and reports an extra Trotter scan as a separate table.
+- **Run times.** One Trotter scan takes 1–2 h on one GPU, and one $N\approx100$ GPU run takes 0.4–3 h, depending on the card and the precision. The CPU reference takes a 56-core node for about 6 h (A) or 3 h (B).
 
 ---
 

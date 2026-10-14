@@ -113,39 +113,45 @@ def parse_run(path):
     return out
 
 
+def lj100_columns(sysn):
+    """{label: {obs: (mean, err)}} for the CPU seed groups and every GPU run of system A or B"""
+    seeds = sorted(glob.glob(f"{OUT}/lj100_{sysn}_cpu/seed*.txt"))
+    gpus = sorted(glob.glob(f"{OUT}/lj100_{sysn}_gpu_*.txt"))
+    cols = {}
+    if seeds:
+        runs = [parse_run(p) for p in seeds]
+        runs = [r for r in runs if "N" in r]
+        # seeds with odd index started from N0=100, even from 64 (see lj100_cpu.sh)
+        idx = [int(re.search(r"seed(\d+)", p).group(1)) for p in seeds]
+        groups = {"CPU (all seeds)": runs,
+                  "CPU, N0=100": [r for r, i in zip(runs, idx) if i % 2],
+                  "CPU, N0=64": [r for r, i in zip(runs, idx) if not i % 2]}
+        for lab, g in groups.items():
+            if len(g) < 2:
+                continue
+            cols[lab] = {k: (np.mean([r[k][0] for r in g]), np.std([r[k][0] for r in g], ddof=1) / math.sqrt(len(g)))
+                         for k in g[0] if isinstance(g[0][k], tuple)}
+            cols[lab]["_n"] = len(g)
+    for p in gpus:
+        m = re.search(r"gpu_([a-z]+)_N0(\d+)(.*)\.txt", p)
+        r = parse_run(p)
+        if "N" in r:
+            cols[f"GPU {m.group(1)}, N0={m.group(2)}" + (f" ({m.group(3).strip('_')})" if m.group(3) else "")] = r
+    for prec in ("double", "float"):        # inverse-variance mean over all runs of one precision
+        g = [c for lab, c in cols.items() if lab.startswith(f"GPU {prec}")]
+        if len(g) > 1:
+            cols[f"GPU {prec}, all runs"] = {k: (sum(c[k][0] / c[k][1] ** 2 for c in g) / sum(c[k][1] ** -2 for c in g),
+                                                 sum(c[k][1] ** -2 for c in g) ** -0.5)
+                                             for k in g[0] if isinstance(g[0][k], tuple) and all(k in c and c[k][1] > 0 for c in g)}
+    return cols
+
+
 def lj100():
     for sysn in ("A", "B"):
-        seeds = sorted(glob.glob(f"{OUT}/lj100_{sysn}_cpu/seed*.txt"))
-        gpus = sorted(glob.glob(f"{OUT}/lj100_{sysn}_gpu_*.txt"))
-        if not seeds and not gpus:
+        cols = lj100_columns(sysn)
+        if not cols:
             continue
         print(f"\n### System {sysn}: GPU (W=32) versus CPU\n")
-        cols = {}
-        if seeds:
-            runs = [parse_run(p) for p in seeds]
-            runs = [r for r in runs if "N" in r]
-            # seeds with odd index started from N0=100, even from 64 (see lj100_cpu.sh)
-            idx = [int(re.search(r"seed(\d+)", p).group(1)) for p in seeds]
-            groups = {"CPU (all seeds)": runs,
-                      "CPU, N0=100": [r for r, i in zip(runs, idx) if i % 2],
-                      "CPU, N0=64": [r for r, i in zip(runs, idx) if not i % 2]}
-            for lab, g in groups.items():
-                if len(g) < 2:
-                    continue
-                cols[lab] = {k: (np.mean([r[k][0] for r in g]), np.std([r[k][0] for r in g], ddof=1) / math.sqrt(len(g)))
-                             for k in g[0] if isinstance(g[0][k], tuple)}
-                cols[lab]["_n"] = len(g)
-        for p in gpus:
-            m = re.search(r"gpu_([a-z]+)_N0(\d+)(.*)\.txt", p)
-            r = parse_run(p)
-            if "N" in r:
-                cols[f"GPU {m.group(1)}, N0={m.group(2)}" + (f" ({m.group(3).strip('_')})" if m.group(3) else "")] = r
-        for prec in ("double", "float"):        # inverse-variance mean over all runs of one precision
-            g = [c for lab, c in cols.items() if lab.startswith(f"GPU {prec}")]
-            if len(g) > 1:
-                cols[f"GPU {prec}, all runs"] = {k: (sum(c[k][0] / c[k][1] ** 2 for c in g) / sum(c[k][1] ** -2 for c in g),
-                                                     sum(c[k][1] ** -2 for c in g) ** -0.5)
-                                                 for k in g[0] if isinstance(g[0][k], tuple) and all(k in c and c[k][1] > 0 for c in g)}
         keys = ["N", "Vbar", "E", "rhos"] + [f"n{j}" for j in range(1, 12)] + ["n12+"]
         keys = [k for k in keys if any(k in c for c in cols.values())]
         print("| | " + " | ".join(cols) + " |")

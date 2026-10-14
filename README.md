@@ -85,8 +85,8 @@ Output (Z-sector averages, jackknife errors):
 ## Exact references
 - `exact_pa.py`: bosons in a harmonic trap ± harmonic pair coupling.
   - Exact Z_N by a sum over cycle types, both for the *same* primitive discretisation (no Trotter error) and for the continuum.
-  - Returns N, Vbar and E.
-- `exact_ideal.py`: ideal Bose gas in a periodic box, with exact N, E, ⟨D²⟩ and ρs.
+  - Returns N, Vbar and E, and with `--cycles` the exchange-cycle occupations ⟨n_j⟩.
+- `exact_ideal.py`: ideal Bose gas in a periodic box, with exact N, E, ⟨D²⟩, ρs and (`--cycles`) ⟨n_j⟩.
   - The primitive approximation is exact for free particles, so this is a strict test of the pbc code at any P.
 
 Original CPU validation (3e7 steps, C=1e-3; exact PA vs MC):
@@ -121,7 +121,7 @@ The GPU code uses the same moves and acceptance ratios as the CPU code.
 - **Inlining.** The move functions are `__forceinline__` on purpose. As ABI calls, ptxas (CUDA 13.0 and 13.3, -O1 and above) corrupted the local frame of the `W=1` kernel; the build is fine with `-G`.
 
 ### Validation
-The scripts are `validate_gpu.sh`, `validate_pbc.sh`, `ref_lj_cpu.sh`, `lj_gpu.sh`, `lj_float.sh` and `test_warp.sh`.
+The scripts are `validate_gpu.sh`, `validate_pbc.sh`, `ref_lj_cpu.sh`, `lj_gpu.sh`, `lj_float.sh`, `test_warp.sh` and the suite in `validation/` (summary: `python3 validation/analyze.py`). Full tables and figures are in [docs/worm_pimc.md, Section 9](docs/worm_pimc.md#9-validation).
 - **Against exact results.** Trap cases (N, Vbar, E) and the periodic ideal gas in 1D/2D/3D (N, E, ⟨D²⟩, ρs) agree in double and float precision. The error bars are ~5–10× smaller than in the CPU tests.
 - **Interacting system.** 3D Lennard-Jones (N ≈ 21), GPU vs CPU (12 seeds):
 
@@ -130,6 +130,10 @@ The scripts are `validate_gpu.sh`, `validate_pbc.sh`, `ref_lj_cpu.sh`, `lj_gpu.s
 | N | 21.1214(88) | 21.1151(50) | 21.1167(65) |
 | Vbar | −51.742(47) | −51.710(26) | −51.724(33) |
 | E | 2.951(58) | 2.973(27) | 2.953(21) |
+
+- **Trotter scan** (`validation/trotter.sh`, trap with κ=0.3, β=2, P=4…64, d=1,2,3). The MC matches the exact PA at every P, even where the Trotter error is hundreds of σ; no deviation exceeds 2.6σ in 243 numbers. The τ² extrapolation reaches the exact continuum within 1.6σ, except N in 3D (−2.3σ; a second 3D scan is pending).
+- **Exchange cycles** (`validation/cycles_ideal.sh`). The full distribution ⟨n_j⟩ of the ideal gas matches the exact cycle expansion in 1D/2D/3D, including a case near condensation, in double and float: χ²/dof between 10.9/15 and 19.0/15.
+- **N ≈ 100** (`validation/lj100_*.sh`). The GPU (W=32) agrees with a 56-seed CPU reference for a dense LJ liquid and for a degenerate LJ gas with ρs/ρ ≈ 0.41 and long exchange cycles: N, V̄, E, ρs and 12 cycle bins. One double-precision run of the gas is 2.0–2.6σ off in ρs and the longest cycles; extra seeds are pending.
 
 ### Performance
 Benchmark: 3D LJ at ρσ³ = 0.7, T = 1, P = 32, thermalised production, total MC steps/s (`bench_N2.sh`, `bench_cpu_N.sh`):
