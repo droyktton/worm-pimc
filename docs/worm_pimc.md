@@ -175,7 +175,7 @@ All estimators are accumulated in the Z sector every `meas` steps.
 
 **Energy.** The thermodynamic estimator is $-\partial_\beta$ of $\ln W$ at fixed $P$ and fugacity. In the Z sector the number of links equals $N_b$, so its average equals the internal energy of the discretised system *exactly* (no Trotter error relative to the PA reference).
 
-**Exchange cycles.** A closed worldline of $j$ particles has $jP$ beads and crosses slice 0 exactly $j$ times. The estimator walks the loop from every bead of slice 0 and adds 1 to bin $j$ = (loop length)/$P$, so each cycle of length $j$ contributes $j$ to $n_j$. The number of bins is the compile-time constant `NCYC` = 12.
+**Exchange cycles.** A closed worldline of $j$ particles has $jP$ beads and crosses slice 0 exactly $j$ times. The estimator walks the loop from every bead of slice 0 and adds 1 to bin $j = \ell/P$, where $\ell$ is the number of beads in the loop, so each cycle of length $j$ contributes $j$ to $n_j$. The number of bins is the compile-time constant `NCYC` = 12.
 
 **Superfluid fraction.** This is the Pollock–Ceperley winding-number estimator [4], $\rho_s/\rho = m\langle W^2\rangle L^2/(d\hbar^2\beta N)$ with $\mathbf D = L\mathbf W$. In the grand-canonical ensemble the ratio of averages is used.
 
@@ -300,7 +300,7 @@ Every parameter is given on the command line as `key=value`. Defaults are in bra
 | `beta` [1], `mu` [0] | inverse temperature, chemical potential | ✓ | ✓ |
 | `lam` [0.5] | $\lambda = \hbar^2/2m$ | ✓ | ✓ |
 | `C` [1] | G-sector weight | ✓ | ✓ |
-| `Lmax` [8] | maximum segment length of the moves ($\le P-2$; GPU also $< $ `LCAP` = 64) | ✓ | ✓ |
+| `Lmax` [8] | maximum segment length of the moves (at most $P-2$; on the GPU also less than `LCAP` = 64) | ✓ | ✓ |
 | `Lbox` [12] | Insert region (open space) or box side (`pbc=1`) | ✓ | ✓ |
 | `pbc` [0] | periodic box | ✓ | ✓ |
 | `omega` [1] | trap frequency (0 = no trap) | ✓ | ✓ |
@@ -485,7 +485,7 @@ $P=24$, $\lambda=1/2$; $C=10^{-3}$ ($10^{-4}$ for the last case).
 
 Of the 36 Monte Carlo numbers above, only one deviates by more than 2σ (2.4σ, float 1D energy), which is what statistical fluctuations predict. All 30 GPU numbers in the trap table lie within 1.6σ.
 
-- **Overflows.** In the 1D case and in the 3D β=2 case, a few hundred to ~1500 moves (out of ~$4\times10^9$) were rejected for exceeding `SM`=64. This samples a truncated ensemble, and the effect is negligible here.
+- **Overflows.** In the 1D case and in the 3D β=2 case, a few hundred to ~1500 moves (out of about $4\times10^9$) were rejected for exceeding `SM`=64. This samples a truncated ensemble, and the effect is negligible here.
 - **The image-sum fix.** The last case is the one that exposed the nearest-image bug (Section 3.2): before the fix the CPU gave E = 1.69 and ρs/ρ = 0.81.
 
 ### 9.3 Trotter scan (`validation/trotter.sh`)
