@@ -81,7 +81,7 @@ $$
 
 with a systematic error of $O(\tau^2)$ in thermodynamic averages [2].
 
-**Configurations.** A configuration is a set of *beads*. Each bead lives on a time slice $k \in \{0,\dots,P-1\}$, carries a position, and is joined by *links* to a predecessor on slice $k-1$ and a successor on slice $k+1$ (indices mod $P$). Closed chains of links are the worldlines; a worldline winding $n$ times around imaginary time represents an exchange cycle of $n$ particles.
+**Configurations.** A configuration is a set of *beads*. Each bead lives on a time slice $k \in \lbrace 0,\dots,P-1\rbrace$, carries a position, and is joined by *links* to a predecessor on slice $k-1$ and a successor on slice $k+1$ (indices mod $P$). Closed chains of links are the worldlines; a worldline winding $n$ times around imaginary time represents an exchange cycle of $n$ particles.
 
 **Configuration weight.** The weight of a configuration $X$ is
 
@@ -122,14 +122,14 @@ The two members of every complementary pair have the same selection probability,
 
 | Move | Proposal | Acceptance ratio |
 |---|---|---|
-| **Open** (Z→G) | Pick a bead $\mathcal I$ uniformly among the $N_b$ beads and $m\in\{1,\dots,L_{\max}\}$ uniformly; delete the $m-1$ beads following $\mathcal I$. The bead $m$ links ahead becomes the tail $\mathcal M$. | $\dfrac{C\, N_b\, L_{\max}\; e^{-(m-1)\mu\tau}\; e^{+\tau\Delta V_{\rm old}}}{\bar\rho_0(\mathbf r_{\mathcal I}, \mathbf r_{\mathcal M}; m\tau)}$ |
+| **Open** (Z→G) | Pick a bead $\mathcal I$ uniformly among the $N_b$ beads and $m\in\lbrace 1,\dots,L_{\max}\rbrace$ uniformly; delete the $m-1$ beads following $\mathcal I$. The bead $m$ links ahead becomes the tail $\mathcal M$. | $\dfrac{C\, N_b\, L_{\max}\; e^{-(m-1)\mu\tau}\; e^{+\tau\Delta V_{\rm old}}}{\bar\rho_0(\mathbf r_{\mathcal I}, \mathbf r_{\mathcal M}; m\tau)}$ |
 | **Close** (G→Z) | Allowed if the slice gap $g$ from $\mathcal I$ to $\mathcal M$ is $\le L_{\max}$. Choose a periodic image of $\mathcal M$ with probability $\propto \rho_0$, then generate the $g-1$ beads with a Lévy bridge. | $\dfrac{\bar\rho_0(\mathbf r_{\mathcal I}, \mathbf r_{\mathcal M}; g\tau)\; e^{(g-1)\mu\tau}\; e^{-\tau\Delta V_{\rm new}}}{C\, N_b'\, L_{\max}}$, with $N_b'$ the number of beads after closing |
-| **Insert** (Z→G) | Uniform slice ($P$ choices); $\ell \in\{0,\dots,L_{\max}-1\}$ links uniformly; first bead uniform in the box of volume $V=L^d$; the remaining $\ell$ beads by free Gaussian steps. | $C\, V\, P\, L_{\max}\; e^{(\ell+1)\mu\tau}\; e^{-\tau\Delta V_{\rm new}}$ |
+| **Insert** (Z→G) | Uniform slice ($P$ choices); $\ell \in\lbrace 0,\dots,L_{\max}-1\rbrace$ links uniformly; first bead uniform in the box of volume $V=L^d$; the remaining $\ell$ beads by free Gaussian steps. | $C\, V\, P\, L_{\max}\; e^{(\ell+1)\mu\tau}\; e^{-\tau\Delta V_{\rm new}}$ |
 | **Remove** (G→Z) | Only if the worm has $\le L_{\max}$ beads and the tail lies inside the box; delete the whole worm. | inverse of Insert, with $\Delta V_{\rm old}$ |
-| **Advance** (head or tail) | $m\in\{1,\dots,L_{\max}\}$ new beads by free Gaussian steps from the head (forward) or the tail (backward). | $e^{m\mu\tau}\, e^{-\tau\Delta V_{\rm new}}$ |
-| **Recede** (head or tail) | Delete $m\in\{1,\dots,L_{\max}\}$ beads from the head or tail; the worm must keep at least one bead. | $e^{-m\mu\tau}\, e^{+\tau\Delta V_{\rm old}}$ |
-| **Swap** | Choose $m\in\{1,\dots,L_{\max}\}$. The candidates $\Omega$ are the beads $j$ on slice $k_{\mathcal I}+m$ whose $m$-th predecessor $q$ exists. Pick $j$ with probability $\bar\rho_0(\mathbf r_{\mathcal I},\mathbf r_j;m\tau)/\Sigma_{\mathcal I}$; delete the $m-1$ beads between $q$ and $j$; bridge $\mathcal I \to j$; $q$ becomes the new head. | $\dfrac{\Sigma_{\mathcal I}}{\Sigma_q}\, e^{-\tau(\Delta V_{\rm new} - \Delta V_{\rm old})}$, where $\Sigma_x = \sum_{j\in\Omega} \bar\rho_0(\mathbf r_x, \mathbf r_j; m\tau)$ |
-| **Staging** (any sector) | Pick a random bead $a$ and $m\in\{2,\dots,L_{\max}\}$ links; the segment must not contain the head. Re-sample the $m-1$ interior beads with a Lévy bridge, keeping both endpoints and the segment's end-to-end displacement. | $e^{-\tau(\Delta V_{\rm new} - \Delta V_{\rm old})}$ |
+| **Advance** (head or tail) | $m\in\lbrace 1,\dots,L_{\max}\rbrace$ new beads by free Gaussian steps from the head (forward) or the tail (backward). | $e^{m\mu\tau}\, e^{-\tau\Delta V_{\rm new}}$ |
+| **Recede** (head or tail) | Delete $m\in\lbrace 1,\dots,L_{\max}\rbrace$ beads from the head or tail; the worm must keep at least one bead. | $e^{-m\mu\tau}\, e^{+\tau\Delta V_{\rm old}}$ |
+| **Swap** | Choose $m\in\lbrace 1,\dots,L_{\max}\rbrace$. The candidates $\Omega$ are the beads $j$ on slice $k_{\mathcal I}+m$ whose $m$-th predecessor $q$ exists. Pick $j$ with probability $\bar\rho_0(\mathbf r_{\mathcal I},\mathbf r_j;m\tau)/\Sigma_{\mathcal I}$; delete the $m-1$ beads between $q$ and $j$; bridge $\mathcal I \to j$; $q$ becomes the new head. | $\dfrac{\Sigma_{\mathcal I}}{\Sigma_q}\, e^{-\tau(\Delta V_{\rm new} - \Delta V_{\rm old})}$, where $\Sigma_x = \sum_{j\in\Omega} \bar\rho_0(\mathbf r_x, \mathbf r_j; m\tau)$ |
+| **Staging** (any sector) | Pick a random bead $a$ and $m\in\lbrace 2,\dots,L_{\max}\rbrace$ links; the segment must not contain the head. Re-sample the $m-1$ interior beads with a Lévy bridge, keeping both endpoints and the segment's end-to-end displacement. | $e^{-\tau(\Delta V_{\rm new} - \Delta V_{\rm old})}$ |
 
 In every move the kinetic weight cancels exactly against the proposal density; only potential energy, chemical potential and normalisations remain. For Insert and Advance, the free Gaussian steps reproduce $\prod\rho_0$. For bridges, see below.
 
@@ -168,7 +168,7 @@ All estimators are accumulated in the Z sector every `meas` steps.
 |---|---|
 | Particle number | $N = N_b / P$ |
 | Potential energy | $\bar V = \frac1P\sum_{k} V_k$ |
-| Thermodynamic energy | $E = \frac{1}{P}\left[\frac{d\,N_b}{2\tau} - \sum_{\rm links}\frac{|\Delta\mathbf r|^2}{4\lambda\tau^2}\right] + \bar V$ |
+| Thermodynamic energy | $E = \frac{1}{P}\left[\frac{d\,N_b}{2\tau} - \sum_{\rm links}\frac{\lvert\Delta\mathbf r\rvert^2}{4\lambda\tau^2}\right] + \bar V$ |
 | Winding | $\mathbf D = \sum_{\rm links}\Delta\mathbf r$ (minimum image), reported as $D^2 = \lvert\mathbf D\rvert^2$ |
 | Superfluid fraction | $\rho_s/\rho = \dfrac{\langle D^2\rangle}{2\lambda\, d\,\beta\,\langle N\rangle}$ |
 | Exchange cycles | $n_j$ = number of particles in permutation cycles of length $j$, for $j = 1,\dots,11$; the last bin collects $j\ge12$, and $\sum_j n_j = N$ |
