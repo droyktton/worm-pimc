@@ -24,7 +24,7 @@ This document describes the physical models, the method, the implementation (CPU
 We consider $N$ identical bosons of mass $m$ in $d = 1, 2, 3$ dimensions (compile-time `DIM`):
 
 ```math
-H \;=\; -\lambda \sum_{i=1}^{N} \nabla_i^2 \;+\; \sum_{i=1}^{N} V_{\rm ext}(\mathbf r_i) \;+\; \sum_{i<j} v\big(|\mathbf r_i - \mathbf r_j|\big),
+H \;=\; -\lambda \sum_{i=1}^{N} \nabla_i^2 \;+\; \sum_{i=1}^{N} V_{\rm ext}(\mathbf r_i) \;+\; \sum_{i \lt j} v\big(\lvert\mathbf r_i - \mathbf r_j\rvert\big),
 \qquad \lambda = \frac{\hbar^2}{2m}.
 ```
 
@@ -49,7 +49,7 @@ The Aziz HFDHE2 potential [5] is
 ```math
 v(r) = \epsilon\left[A\,e^{-\alpha x} - F(x)\left(\frac{C_6}{x^6} + \frac{C_8}{x^8} + \frac{C_{10}}{x^{10}}\right)\right],
 \qquad x = \frac{r}{r_m},
-\qquad F(x) = \begin{cases} e^{-(D/x - 1)^2} & x < D \\ 1 & x \ge D \end{cases}
+\qquad F(x) = \begin{cases} e^{-(D/x - 1)^2} & x \lt D \\ 1 & x \ge D \end{cases}
 ```
 
 with $\epsilon = 10.8$ K, $r_m = 2.9673$ Å, $A = 0.5448504\times10^6$, $\alpha = 13.353384$, $D = 1.241314$, $C_6 = 1.3732412$, $C_8 = 0.4253785$ and $C_{10} = 0.1781$.
@@ -90,7 +90,7 @@ with a systematic error of $O(\tau^2)$ in thermodynamic averages [2].
 ```math
 W(X) = C^{\,[X\in G]}\; \prod_{\text{beads}} e^{\mu\tau}\; \prod_{\text{links}} \rho_0(\Delta\mathbf r; \tau)\; \prod_{k=0}^{P-1} e^{-\tau V_k},
 \qquad
-V_k = \sum_{b\in k} V_{\rm ext}(\mathbf r_b) + \sum_{\substack{b<b'\\ b,b'\in k}} v(|\mathbf r_b-\mathbf r_{b'}|).
+V_k = \sum_{b\in k} V_{\rm ext}(\mathbf r_b) + \sum_{\substack{b \lt b'\\ b,b'\in k}} v(\lvert\mathbf r_b-\mathbf r_{b'}\rvert).
 ```
 
 In the sector of closed worldlines (the **Z sector**) the number of beads is $N_b = NP$, so $\prod e^{\mu\tau} = e^{\beta\mu N}$ and $W$ is the primitive-approximation integrand of $\Xi$.
