@@ -14,7 +14,7 @@
 //       [replica][element] so that lanes read consecutive beads of a slice.
 //
 // Averages: per-replica Z-sector sums of the observables (N, Vbar, energy E,
-// winding D^2) are combined as ratio estimators; error bars from a jackknife
+// winding D^2, exchange-cycle histogram n_j) are combined as ratio estimators; error bars from a jackknife
 // over groups of replicas.  Same options as the CPU code (pbc, pot, lam, ...).
 //
 // Build:  nvcc -O3 -std=c++17 -arch=sm_86 -DDIM=1 worm_pimc_gpu.cu -o worm_pimc_gpu_1d
@@ -33,6 +33,9 @@
 #endif
 #ifndef LCAP
 #define LCAP 64            // compile-time bound on Lmax+1 (local scratch arrays)
+#endif
+#ifndef NCYC
+#define NCYC 12            // exchange-cycle-length bins (last one: j >= NCYC)
 #endif
 
 #ifdef USE_FLOAT
@@ -55,7 +58,7 @@ typedef double real;
     fprintf(stderr, "CUDA error %s at %s:%d\n", cudaGetErrorString(e_), __FILE__, __LINE__); exit(3); } } while (0)
 
 static const int NMOVE = 10;
-enum { O_N, O_V, O_E, O_D2, NOBS };
+enum { O_N, O_V, O_E, O_D2, O_C, NOBS = O_C + NCYC };
 #define NIMG 2
 
 struct Params {
@@ -521,6 +524,16 @@ struct Rep {
         }
         e = wsum(e); k2 = wsum(k2);
         double D2 = 0; for (int d = 0; d < DIM; d++) { D[d] = wsum(D[d]); D2 += D[d] * D[d]; }
+        // exchange cycles: walking a loop of j particles (P*j beads) from each of
+        // its j beads on slice 0 adds j to bin j
+        for (int k = 0; k < NCYC; k++) o[O_C + k] = 0;
+        int n0 = nsl(0);
+        for (int i = lane; i < n0; i += W) {
+            int b0 = sl(0, i), c = b0, len = 0;
+            do { c = next(c); len++; } while (c != b0);
+            o[O_C + min(len / p.P, NCYC) - 1] += 1;
+        }
+        if constexpr (W > 1) for (int k = 0; k < NCYC; k++) o[O_C + k] = wsum(o[O_C + k]);
         double tau = p.tau;
         o[O_N] = nact / (double)p.P;
         o[O_V] = e / p.P;
@@ -793,6 +806,10 @@ int main(int argc, char** argv) {
            secs > tth ? (double)total * p.R / (secs - tth) : 0.0);
     printf("RESULT2 E= %.5f +- %.5f   D2= %.5f +- %.5f   rhos= %.5f +- %.5f\n",
            mean[O_E], err[O_E], mean[O_D2], err[O_D2], mean[NOBS], err[NOBS]);
+    printf("CYCLES");
+    for (int k = 0; k < NCYC; k++)
+        printf(" n%d%s= %.7f +- %.7f", k + 1, k == NCYC - 1 ? "+" : "", mean[O_C + k], err[O_C + k]);
+    printf("\n");
     printf("acceptance:");
     for (int i = 0; i < NMOVE; i++) {
         long long a = 0, c = 0; for (size_t k = 0; k < R; k++) { a += att[i * R + k]; c += acc[i * R + k]; }

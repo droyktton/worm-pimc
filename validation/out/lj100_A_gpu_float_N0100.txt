@@ -1,0 +1,6 @@
+GPU=NVIDIA GeForce RTX 3080 Ti W=32 N0=100 DIM=3 float P=32 beta=1 mu=1 C=0.0001 Lmax=8 Lbox=5.4 omega=0 kappa=0 lam=0.05 pbc=1 pot=1 eps=1 sig=1 rc=2.5 R=512 steps/rep=1e+07 therm=1e+07
+RESULT N= 101.38205 +- 0.02040   Vbar= -353.53143 +- 0.14328   Zfrac= 0.6450   time=1878.19s   rate=5.45e+06 steps/s   overflow=0
+TIMING therm=273.93s prod=1604.26s prod_rate=3.192e+06 steps/s
+RESULT2 E= -45.57503 +- 0.09572   D2= 0.00000 +- 0.00000   rhos= 0.00000 +- 0.00000
+CYCLES n1= 101.38205 +- 0.02040 n2= 0.00000 +- 0.00000 n3= 0.00000 +- 0.00000 n4= 0.00000 +- 0.00000 n5= 0.00000 +- 0.00000 n6= 0.00000 +- 0.00000 n7= 0.00000 +- 0.00000 n8= 0.00000 +- 0.00000 n9= 0.00000 +- 0.00000 n10= 0.00000 +- 0.00000 n11= 0.00000 +- 0.00000 n12+= 0.00000 +- 0.00000
+acceptance: open=0.126 close=0.401 insert=0.025 remove=0.342 advH=0.422 recH=0.464 advT=0.422 recT=0.464 swap=0.000 stage=0.889

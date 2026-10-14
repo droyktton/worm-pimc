@@ -1,0 +1,6 @@
+GPU=NVIDIA GeForce RTX 5070 Ti W=32 N0=64 DIM=3 double P=32 beta=1 mu=3 C=1e-07 Lmax=8 Lbox=8 omega=0 kappa=0 lam=0.5 pbc=1 pot=1 eps=1 sig=1 rc=2.5 R=512 steps/rep=1e+07 therm=1e+07
+RESULT N= 90.57243 +- 0.01916   Vbar= -47.17661 +- 0.02031   Zfrac= 0.4589   time=5871.82s   rate=1.74e+06 steps/s   overflow=0
+TIMING therm=754.05s prod=5117.77s prod_rate=1e+06 steps/s
+RESULT2 E= 140.62186 +- 0.12765   D2= 112.44595 +- 0.30635   rhos= 0.41383 +- 0.00113
+CYCLES n1= 63.72535 +- 0.02984 n2= 3.83834 +- 0.00996 n3= 2.08656 +- 0.00833 n4= 1.33861 +- 0.00668 n5= 1.06976 +- 0.00596 n6= 0.98648 +- 0.00583 n7= 0.96343 +- 0.00606 n8= 0.91161 +- 0.00741 n9= 0.91250 +- 0.00758 n10= 0.89821 +- 0.00555 n11= 0.88330 +- 0.00640 n12+= 12.95828 +- 0.03120
+acceptance: open=0.012 close=0.041 insert=0.008 remove=1.000 advH=0.598 recH=0.600 advT=0.598 recT=0.600 swap=0.221 stage=0.863

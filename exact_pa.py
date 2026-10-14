@@ -19,6 +19,8 @@ For each eigenvalue lambda of the permutation matrix and mode frequency w_k:
 where the primitive-approximation kernel of a 1D oscillator has eigenvalues lam0*rho^n
 (Mehler formula):  rho + 1/rho = 2 + tau^2 w^2.
 <E>: thermodynamic estimator, -d ln Xi/d beta at fixed P and mu, plus mu<N>.
+Exchange cycles: the weight of each cycle type (partition of N) in Z_N is the summand
+above, so <n_j> (mean number of particles in cycles of length j) is exact too.
 <V> (mean over slices of the potential energy) = -(1/beta) d ln Z / d s at s=1 where
 the potential is scaled by s (w^2 -> s w^2, kappa -> s kappa).
 """
@@ -55,12 +57,10 @@ def mode_factor(lam, w, beta, P):
     return lam0 ** P / (1.0 - lam * rho ** P)
 
 
-def ZN(N, d, beta, omega, kappa, P, s=1.0):
-    if N == 0:
-        return 1.0
+def cycle_terms(N, d, beta, omega, kappa, P, s=1.0):
+    """yields (partition of N, its contribution to Z_N)"""
     wc = omega * math.sqrt(s)
     wr = math.sqrt(s * (omega ** 2 + N * kappa))
-    total = 0.0
     for part in partitions(N):
         # symmetry factor 1/prod(c^{m_c} m_c!)
         sym = 1.0
@@ -76,8 +76,25 @@ def ZN(N, d, beta, omega, kappa, P, s=1.0):
         for c in part:
             for k in range(1, c):
                 t *= mode_factor(cmath.exp(2j * math.pi * k / c), wr, beta, P)
-        total += (t.real ** d if abs(t.imag) < 1e-9 * abs(t.real) else float('nan')) / sym
-    return total
+        yield part, (t.real ** d if abs(t.imag) < 1e-9 * abs(t.real) else float('nan')) / sym
+
+
+def ZN(N, d, beta, omega, kappa, P, s=1.0):
+    if N == 0:
+        return 1.0
+    return sum(z for _, z in cycle_terms(N, d, beta, omega, kappa, P, s))
+
+
+def cycles(beta, mu, d, omega, kappa, P, Nmax=12, J=12):
+    """<n_j> for j = 1..J-1, last entry: sum over j >= J"""
+    Xi, n = 1.0, [0.0] * J
+    for N in range(1, Nmax + 1):
+        f = math.exp(beta * mu * N)
+        for part, z in cycle_terms(N, d, beta, omega, kappa, P):
+            Xi += f * z
+            for c in part:
+                n[min(c, J) - 1] += f * z * c
+    return [x / Xi for x in n]
 
 
 def grand(beta, mu, d, omega, kappa, P, Nmax, s=1.0):
@@ -115,7 +132,12 @@ if __name__ == "__main__":
     ap.add_argument("--kappa", type=float, default=0.0)
     ap.add_argument("--P", type=int, default=24)
     ap.add_argument("--Nmax", type=int, default=12)
+    ap.add_argument("--J", type=int, default=12, help="cycle-length bins (last: j >= J)")
+    ap.add_argument("--cycles", action="store_true", help="also print <n_j>")
     a = ap.parse_args()
     for label, P in (("PA  P=%d" % a.P, a.P), ("continuum", None)):
         N, V, tl, E = observables(a.beta, a.mu, a.d, a.omega, a.kappa, P, a.Nmax)
         print("%-12s <N> = %.5f   <Vbar> = %.5f   (weight of N=Nmax: %.1e)   <E> = %.5f" % (label, N, V, tl, E))
+        if a.cycles:
+            n = cycles(a.beta, a.mu, a.d, a.omega, a.kappa, P, a.Nmax, a.J)
+            print("%-12s " % "  cycles" + " ".join("n%d%s= %.6f" % (j + 1, "+" if j == a.J - 1 else "", x) for j, x in enumerate(n)))

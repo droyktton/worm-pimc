@@ -22,7 +22,9 @@
 // pairs), pot=0 harmonic pair kappa / 1 Lennard-Jones (eps,sig) / 2 Aziz
 // HFDHE2 for 4He (K, Angstrom; use lam=6.0596), pair cutoff rc.
 // Z-sector estimators: N, Vbar, thermodynamic energy E, winding <D^2>
-// (D = sum of link displacements; rho_s/rho = <D^2>/(2 lam d beta <N>)).
+// (D = sum of link displacements; rho_s/rho = <D^2>/(2 lam d beta <N>)),
+// exchange cycles n_j = number of particles in permutation cycles of length j
+// (j = 1..NCYC-1, last bin j >= NCYC; sum_j n_j = N).
 //
 // Build:  g++ -O2 -std=c++17 -DDIM=1 worm_pimc.cpp -o worm_pimc_1d
 //
@@ -39,6 +41,9 @@
 
 #ifndef DIM
 #define DIM 1
+#endif
+#ifndef NCYC
+#define NCYC 12            // cycle-length bins (last one: j >= NCYC)
 #endif
 
 typedef std::array<double, DIM> Vec;
@@ -411,7 +416,7 @@ struct Sim {
     }
 
     // ---- observables (Z sector)
-    enum { O_N, O_V, O_E, O_D2, NOBS };
+    enum { O_N, O_V, O_E, O_D2, O_C, NOBS = O_C + NCYC };
     void measure(double* o) const {
         double Nb = (double)act.size();
         double e = 0;
@@ -430,6 +435,14 @@ struct Sim {
             for (int d = 0; d < DIM; d++) { double x = mimg(c.r[d] - b.r[d]); k2 += x * x; D[d] += x; }
         }
         double D2 = 0; for (int d = 0; d < DIM; d++) D2 += D[d] * D[d];
+        // a closed loop of j particles has P*j beads and crosses slice 0 j times:
+        // walking it from each of its slice-0 beads adds j to bin j
+        for (int k = 0; k < NCYC; k++) o[O_C + k] = 0;
+        for (int b0 : sl[0]) {
+            int c = b0, len = 0;
+            do { c = B[c].next; len++; } while (c != b0);
+            o[O_C + std::min(len / P, NCYC) - 1] += 1;
+        }
         o[O_N] = Nb / P;
         o[O_V] = e / P;
         o[O_E] = (0.5 * DIM * Nb / tau - k2 / (4.0 * lam * tau * tau)) / P + e / P;
@@ -568,6 +581,10 @@ int main(int argc, char** argv) {
     printf("TIMING therm=%.2fs prod=%.2fs prod_rate=%.4g steps/s\n", tth, secs - tth, total / (secs - tth));
     printf("RESULT2 E= %.5f +- %.5f   D2= %.5f +- %.5f   rhos= %.5f +- %.5f\n",
            mean[Sim::O_E], err[Sim::O_E], mean[Sim::O_D2], err[Sim::O_D2], mean[NO], err[NO]);
+    printf("CYCLES");
+    for (int k = 0; k < NCYC; k++)
+        printf(" n%d%s= %.7f +- %.7f", k + 1, k == NCYC - 1 ? "+" : "", mean[Sim::O_C + k], err[Sim::O_C + k]);
+    printf("\n");
     printf("acceptance:");
     for (int i = 0; i < 10; i++) printf(" %s=%.3f(%ld)", names[i], S.att[i] ? (double)S.acc[i] / S.att[i] : 0.0, S.att[i]);
     printf("\n");

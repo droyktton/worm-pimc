@@ -13,6 +13,8 @@ Cycles of each (j, w) are independent Poisson variables, hence
     <D^2> = sum_j e^{beta mu j}/j * d * L^2 * (sum_w w^2 z(j,w)) * z(j)^{d-1}
     <E>   = -d ln Xi / d beta |_mu + mu <N>
 (D = total winding displacement; rho_s/rho = <D^2>/(2 lam d beta <N>)).
+Exchange cycles: the mean number of particles in cycles of length j is
+    <n_j> = e^{beta mu j} z(j)^d        (sum_j <n_j> = <N>).
 """
 import argparse, math
 
@@ -37,6 +39,17 @@ def lnxi(beta, mu, d, lam, L, jmax):
     return s, N, D2
 
 
+def cycles(beta, mu, d, lam, L, J=12, jmax=100000):
+    """<n_j> for j = 1..J-1, last entry: sum over j >= J"""
+    n = [0.0] * J
+    for j in range(1, jmax + 1):
+        f = math.exp(beta * mu * j)
+        if f < 1e-18:
+            break
+        n[min(j, J) - 1] += f * z1(j, beta, lam, L)[0] ** d
+    return n
+
+
 def observables(beta, mu, d, lam, L, jmax=100000):
     s, N, D2 = lnxi(beta, mu, d, lam, L, jmax)
     h = 1e-5 * beta
@@ -51,8 +64,11 @@ if __name__ == "__main__":
     ap.add_argument("--mu", type=float, default=-0.5)
     ap.add_argument("--lam", type=float, default=0.5)
     ap.add_argument("--L", type=float, default=4.0)
+    ap.add_argument("--J", type=int, default=12, help="cycle-length bins (last: j >= J)")
     a = ap.parse_args()
     if a.mu >= 0:
         raise SystemExit("need mu < 0")
     N, E, D2, rs = observables(a.beta, a.mu, a.d, a.lam, a.L)
     print("ideal  <N> = %.5f   <E> = %.5f   <D2> = %.5f   rhos = %.5f" % (N, E, D2, rs))
+    n = cycles(a.beta, a.mu, a.d, a.lam, a.L, a.J)
+    print("cycles " + " ".join("n%d%s= %.6f" % (j + 1, "+" if j == a.J - 1 else "", x) for j, x in enumerate(n)))

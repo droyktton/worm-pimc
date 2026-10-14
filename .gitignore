@@ -5,3 +5,4 @@ worm_pimc_gpu_*
 build_*/
 slurm/logs/*
 !slurm/logs/.gitkeep
+validation/logs/

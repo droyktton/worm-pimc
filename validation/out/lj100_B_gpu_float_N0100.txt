@@ -1,0 +1,6 @@
+GPU=NVIDIA GeForce RTX 3080 W=32 N0=100 DIM=3 float P=32 beta=1 mu=3 C=1e-07 Lmax=8 Lbox=8 omega=0 kappa=0 lam=0.5 pbc=1 pot=1 eps=1 sig=1 rc=2.5 R=512 steps/rep=1e+07 therm=1e+07
+RESULT N= 90.60492 +- 0.01823   Vbar= -47.19898 +- 0.02109   Zfrac= 0.4591   time=1680.25s   rate=6.09e+06 steps/s   overflow=0
+TIMING therm=321.34s prod=1358.92s prod_rate=3.768e+06 steps/s
+RESULT2 E= 140.83540 +- 0.11496   D2= 112.47946 +- 0.42516   rhos= 0.41381 +- 0.00152
+CYCLES n1= 63.77652 +- 0.03144 n2= 3.83671 +- 0.00890 n3= 2.07893 +- 0.00711 n4= 1.35091 +- 0.00675 n5= 1.05954 +- 0.00491 n6= 0.98765 +- 0.00549 n7= 0.94822 +- 0.00496 n8= 0.93365 +- 0.00616 n9= 0.90630 +- 0.00670 n10= 0.89613 +- 0.00555 n11= 0.89356 +- 0.00615 n12+= 12.93679 +- 0.04268
+acceptance: open=0.012 close=0.041 insert=0.008 remove=1.000 advH=0.597 recH=0.600 advT=0.597 recT=0.600 swap=0.221 stage=0.863
