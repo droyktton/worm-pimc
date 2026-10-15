@@ -21,10 +21,15 @@
 // Options: pbc=1 (periodic box of side Lbox, minimum image on links and
 // pairs), pot=0 harmonic pair kappa / 1 Lennard-Jones (eps,sig) / 2 Aziz
 // HFDHE2 for 4He (K, Angstrom; use lam=6.0596), pair cutoff rc.
+// Disorder (Vd > 0): V(x) = Vd sqrt(2/M) sum_{k=1..M} cos(2 pi k x/Lbox + phi_k)
+// added along each axis, M = floor(qc Lbox / 2 pi) modes up to wavevector qc,
+// random phases from dseed (splitmix64, identical in the GPU code); its spatial
+// variance is exactly Vd^2.
 // Z-sector estimators: N, Vbar, thermodynamic energy E, winding <D^2>
 // (D = sum of link displacements; rho_s/rho = <D^2>/(2 lam d beta <N>)),
 // exchange cycles n_j = number of particles in permutation cycles of length j
-// (j = 1..NCYC-1, last bin j >= NCYC; sum_j n_j = N).
+// (j = 1..NCYC-1, last bin j >= NCYC; sum_j n_j = N), <N^2> and the Luttinger
+// parameter K = pi sqrt(<W^2> <dN^2>) (W = D/Lbox per axis; meaningful in 1D, pbc).
 //
 // Build:  g++ -O2 -std=c++17 -DDIM=1 worm_pimc.cpp -o worm_pimc_1d
 //
@@ -62,6 +67,8 @@ struct Sim {
     double Vbox = 1.0;
     int pbc = 0, pot = 0;              // periodic box; pair potential type
     double eps = 1.0, sig = 1.0, rc = 1e300, rc2 = 1e300;
+    int ndis = 0;                      // disorder modes; dc = (Re, Im) of c_k, k = 1..ndis
+    std::vector<double> dc;
 
     std::mt19937_64 rng;
     std::normal_distribution<double> nd{0.0, 1.0};
@@ -99,10 +106,22 @@ struct Sim {
         return s;
     }
     inline double vext(const double* r) const {
-        if (omega == 0.0) return 0.0;
         double s = 0;
-        for (int d = 0; d < DIM; d++) s += r[d] * r[d];
-        return 0.5 * omega * omega * s;
+        if (omega != 0.0) {
+            for (int d = 0; d < DIM; d++) s += r[d] * r[d];
+            s = 0.5 * omega * omega * s;
+        }
+        if (ndis) for (int d = 0; d < DIM; d++) s += vdis(r[d]);
+        return s;
+    }
+    // disorder along one axis: Re sum_k c_k z^k, z = exp(2 pi i x/Lbox) (Horner)
+    double vdis(double x) const {
+        double zr = std::cos(2.0 * M_PI * x / Lbox), zi = std::sin(2.0 * M_PI * x / Lbox), sr = 0, si = 0;
+        for (int k = ndis - 1; k >= 0; k--) {
+            double tr = sr + dc[2 * k], ti = si + dc[2 * k + 1];
+            sr = tr * zr - ti * zi; si = tr * zi + ti * zr;
+        }
+        return sr;
     }
     static double aziz(double r) {          // HFDHE2, Aziz et al. JCP 70, 4330 (1979); K, Angstrom
         const double eps = 10.8, rm = 2.9673, A = 0.5448504e6, alpha = 13.353384, D = 1.241314;
@@ -416,7 +435,7 @@ struct Sim {
     }
 
     // ---- observables (Z sector)
-    enum { O_N, O_V, O_E, O_D2, O_C, NOBS = O_C + NCYC };
+    enum { O_N, O_V, O_E, O_D2, O_C, O_N2 = O_C + NCYC, NOBS };
     void measure(double* o) const {
         double Nb = (double)act.size();
         double e = 0;
@@ -447,6 +466,7 @@ struct Sim {
         o[O_V] = e / P;
         o[O_E] = (0.5 * DIM * Nb / tau - k2 / (4.0 * lam * tau * tau)) / P + e / P;
         o[O_D2] = D2;
+        o[O_N2] = o[O_N] * o[O_N];
     }
 
     void step() {
@@ -491,6 +511,17 @@ static double getd(int argc, char** argv, const char* key, double def) {
     return v;
 }
 
+// disorder coefficients c_k = Vd sqrt(2/M) exp(i phi_k), phi_k uniform from splitmix64(dseed)
+static void disorder(int M, double Vd, unsigned long long seed, std::vector<double>& c) {
+    c.resize(2 * M);
+    for (int k = 0; k < M; k++) {
+        unsigned long long z = (seed += 0x9e3779b97f4a7c15ULL);
+        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL; z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL; z ^= z >> 31;
+        double ph = 2.0 * M_PI * (double)(z >> 11) * 0x1p-53, a = Vd * std::sqrt(2.0 / M);
+        c[2 * k] = a * std::cos(ph); c[2 * k + 1] = a * std::sin(ph);
+    }
+}
+
 int main(int argc, char** argv) {
     Sim S;
     S.P = (int)getd(argc, argv, "P", 24);
@@ -507,6 +538,13 @@ int main(int argc, char** argv) {
     S.eps = getd(argc, argv, "eps", 1.0);
     S.sig = getd(argc, argv, "sig", 1.0);
     S.rc = getd(argc, argv, "rc", S.pbc ? 0.5 * S.Lbox : 1e300);
+    double Vd = getd(argc, argv, "Vd", 0.0), qc = getd(argc, argv, "qc", 2.0);
+    unsigned long long dseed = (unsigned long long)getd(argc, argv, "dseed", 1);
+    if (Vd != 0.0) {
+        S.ndis = (int)std::floor(qc * S.Lbox / (2.0 * M_PI));
+        if (S.ndis < 1) { fprintf(stderr, "need qc >= 2 pi / Lbox\n"); return 1; }
+        disorder(S.ndis, Vd, dseed, S.dc);
+    }
     double nsteps = getd(argc, argv, "steps", 2e7);
     double ntherm = getd(argc, argv, "therm", 2e6);
     int meas = (int)getd(argc, argv, "meas", 20);
@@ -555,11 +593,15 @@ int main(int argc, char** argv) {
         }
     }
     double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    // jackknife over blocks; derived: rho_s/rho = <D2>/(2 lam d beta <N>)
-    const int NQ = NO + 1;
+    // jackknife over blocks; derived: rho_s/rho = <D2>/(2 lam d beta <N>), <dN^2>,
+    // <W^2> = <D2>/(d Lbox^2), K = pi sqrt(<W^2> <dN^2>)
+    enum { Q_RS = NO, Q_DN2, Q_W2, Q_K, NQ };
     auto derive = [&](const double* m, double* q) {
         for (int k = 0; k < NO; k++) q[k] = m[k];
-        q[NO] = m[Sim::O_N] > 0 ? m[Sim::O_D2] / (2.0 * S.lam * DIM * S.beta * m[Sim::O_N]) : 0.0;
+        q[Q_RS] = m[Sim::O_N] > 0 ? m[Sim::O_D2] / (2.0 * S.lam * DIM * S.beta * m[Sim::O_N]) : 0.0;
+        q[Q_DN2] = m[Sim::O_N2] - m[Sim::O_N] * m[Sim::O_N];
+        q[Q_W2] = m[Sim::O_D2] / (DIM * S.Lbox * S.Lbox);
+        q[Q_K] = M_PI * std::sqrt(std::max(0.0, q[Q_W2] * q[Q_DN2]));
     };
     double tot[NO] = {0}; long totn = 0; int nb = 0;
     for (int b = 0; b < nblocks; b++) if (bn[b] > 0) { nb++; totn += bn[b]; for (int k = 0; k < NO; k++) tot[k] += bs[b][k]; }
@@ -580,7 +622,10 @@ int main(int argc, char** argv) {
            mean[Sim::O_N], err[Sim::O_N], mean[Sim::O_V], err[Sim::O_V], nAll ? (double)nZ / nAll : 0.0, secs);
     printf("TIMING therm=%.2fs prod=%.2fs prod_rate=%.4g steps/s\n", tth, secs - tth, total / (secs - tth));
     printf("RESULT2 E= %.5f +- %.5f   D2= %.5f +- %.5f   rhos= %.5f +- %.5f\n",
-           mean[Sim::O_E], err[Sim::O_E], mean[Sim::O_D2], err[Sim::O_D2], mean[NO], err[NO]);
+           mean[Sim::O_E], err[Sim::O_E], mean[Sim::O_D2], err[Sim::O_D2], mean[Q_RS], err[Q_RS]);
+    printf("RESULT3 dN2= %.5f +- %.5f   W2= %.5e +- %.2e   K= %.5f +- %.5f\n",
+           mean[Q_DN2], err[Q_DN2], mean[Q_W2], err[Q_W2], mean[Q_K], err[Q_K]);
+    if (S.ndis) printf("DISORDER Vd=%g qc=%g dseed=%llu modes=%d\n", Vd, qc, dseed, S.ndis);
     printf("CYCLES");
     for (int k = 0; k < NCYC; k++)
         printf(" n%d%s= %.7f +- %.7f", k + 1, k == NCYC - 1 ? "+" : "", mean[Sim::O_C + k], err[Sim::O_C + k]);

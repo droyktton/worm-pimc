@@ -14,8 +14,9 @@
 //       [replica][element] so that lanes read consecutive beads of a slice.
 //
 // Averages: per-replica Z-sector sums of the observables (N, Vbar, energy E,
-// winding D^2, exchange-cycle histogram n_j) are combined as ratio estimators; error bars from a jackknife
-// over groups of replicas.  Same options as the CPU code (pbc, pot, lam, ...).
+// winding D^2, exchange-cycle histogram n_j, N^2) are combined as ratio estimators; error bars from a jackknife
+// over groups of replicas.  Same options as the CPU code (pbc, pot, lam, disorder Vd/qc/dseed, ...);
+// the disorder coefficients are generated on the host exactly as in the CPU code.
 //
 // Build:  nvcc -O3 -std=c++17 -arch=sm_86 -DDIM=1 worm_pimc_gpu.cu -o worm_pimc_gpu_1d
 //         (-DUSE_FLOAT for single precision)
@@ -37,6 +38,9 @@
 #ifndef NCYC
 #define NCYC 12            // exchange-cycle-length bins (last one: j >= NCYC)
 #endif
+#ifndef DMAX
+#define DMAX 512           // maximum number of disorder modes
+#endif
 
 #ifdef USE_FLOAT
 typedef float real;
@@ -45,6 +49,7 @@ typedef float real;
 #define RSQRT sqrtf
 #define RFABS fabsf
 #define RRINT ::rintf
+#define RSINCOS sincosf
 #else
 typedef double real;
 #define RLOG log
@@ -52,13 +57,14 @@ typedef double real;
 #define RSQRT sqrt
 #define RFABS fabs
 #define RRINT ::rint
+#define RSINCOS sincos
 #endif
 
 #define CK(x) do { cudaError_t e_ = (x); if (e_ != cudaSuccess) { \
     fprintf(stderr, "CUDA error %s at %s:%d\n", cudaGetErrorString(e_), __FILE__, __LINE__); exit(3); } } while (0)
 
 static const int NMOVE = 10;
-enum { O_N, O_V, O_E, O_D2, O_C, NOBS = O_C + NCYC };
+enum { O_N, O_V, O_E, O_D2, O_C, O_N2 = O_C + NCYC, NOBS };
 #define NIMG 2
 
 struct Params {
@@ -68,7 +74,10 @@ struct Params {
     int pbc, pot;                    // periodic box; 0 harmonic pair, 1 LJ, 2 Aziz
     int rmaj;                        // layout: 0 [elem][replica], 1 [replica][elem]
     real eps, sig, rc2;
+    int ndis; real kdis;             // disorder modes, 2 pi / Lbox
 };
+
+__constant__ real dcoef[2 * DMAX];   // disorder c_k = (Re, Im), k = 1..ndis
 
 // device state (configuration arrays indexed by Rep::I and friends; statistics [k * R + rep])
 struct State {
@@ -165,8 +174,20 @@ struct Rep {
         real s = 0; for (int d = 0; d < DIM; d++) { real x = mimg(a[d] - R_(b, d)); s += x * x; } return s;
     }
     __device__ inline real vext(const real* x) const {
-        if (p.omega == 0) return 0;
-        real s = 0; for (int d = 0; d < DIM; d++) s += x[d] * x[d]; return real(0.5) * p.omega * p.omega * s;
+        real s = 0;
+        if (p.omega != 0) { for (int d = 0; d < DIM; d++) s += x[d] * x[d]; s = real(0.5) * p.omega * p.omega * s; }
+        if (p.ndis) for (int d = 0; d < DIM; d++) s += vdis(x[d]);
+        return s;
+    }
+    // disorder along one axis: Re sum_k c_k z^k, z = exp(i kdis x) (Horner), as in the CPU code
+    __device__ inline real vdis(real x) const {
+        real zr, zi, sr = 0, si = 0;
+        RSINCOS(p.kdis * x, &zi, &zr);
+        for (int k = p.ndis - 1; k >= 0; k--) {
+            real tr = sr + dcoef[2 * k], ti = si + dcoef[2 * k + 1];
+            sr = tr * zr - ti * zi; si = tr * zi + ti * zr;
+        }
+        return sr;
     }
     __device__ static real aziz(real r) {   // HFDHE2 (K, Angstrom)
         const real eps = 10.8, rm = 2.9673, A = 0.5448504e6, alpha = 13.353384, D = 1.241314;
@@ -539,6 +560,7 @@ struct Rep {
         o[O_V] = e / p.P;
         o[O_E] = (0.5 * DIM * nact / tau - k2 / (4.0 * p.lam * tau * tau)) / p.P + e / p.P;
         o[O_D2] = D2;
+        o[O_N2] = o[O_N] * o[O_N];
     }
 
     __device__ void load() {
@@ -637,6 +659,17 @@ __global__ void check_kernel(Params p, State S, int* bad) {
     if (err) atomicMax(bad, err);
 }
 
+// disorder coefficients c_k = Vd sqrt(2/M) exp(i phi_k), phi_k uniform from splitmix64(dseed) (as in worm_pimc.cpp)
+static void disorder(int M, double Vd, unsigned long long seed, std::vector<double>& c) {
+    c.resize(2 * M);
+    for (int k = 0; k < M; k++) {
+        unsigned long long z = (seed += 0x9e3779b97f4a7c15ULL);
+        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL; z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL; z ^= z >> 31;
+        double ph = 2.0 * M_PI * (double)(z >> 11) * 0x1p-53, a = Vd * std::sqrt(2.0 / M);
+        c[2 * k] = a * std::cos(ph); c[2 * k + 1] = a * std::sin(ph);
+    }
+}
+
 static double getd(int argc, char** argv, const char* key, double def) {
     size_t n = strlen(key);
     double v = def;                       // the last occurrence wins
@@ -670,6 +703,8 @@ int main(int argc, char** argv) {
     p.eps = getd(argc, argv, "eps", 1.0);
     p.sig = getd(argc, argv, "sig", 1.0);
     double rc = getd(argc, argv, "rc", p.pbc ? 0.5 * (double)p.Lbox : 1e300);
+    double Vd = getd(argc, argv, "Vd", 0.0), qc = getd(argc, argv, "qc", 2.0);
+    unsigned long long dseed = (unsigned long long)getd(argc, argv, "dseed", 1);
     p.R = (int)getd(argc, argv, "R", 4096);              // replicas
     p.NB = (int)getd(argc, argv, "NB", 0);                // bead capacity per replica
     p.SM = (int)getd(argc, argv, "SM", 64);               // capacity per slice
@@ -705,6 +740,14 @@ int main(int argc, char** argv) {
     p.logC = log(p.C); p.logVbox = log(p.Vbox); p.logP = log((double)p.P); p.logLmax = log((double)p.Lmax);
 
     CK(cudaSetDevice(dev));
+    p.ndis = 0; p.kdis = 2.0 * M_PI / (double)p.Lbox;
+    if (Vd != 0.0) {
+        p.ndis = (int)std::floor(qc * (double)p.Lbox / (2.0 * M_PI));
+        if (p.ndis < 1 || p.ndis > DMAX) { fprintf(stderr, "need 1 <= qc Lbox / 2 pi <= DMAX=%d\n", DMAX); return 1; }
+        std::vector<double> c; disorder(p.ndis, Vd, dseed, c);
+        std::vector<real> cr(c.begin(), c.end());
+        CK(cudaMemcpyToSymbol(dcoef, cr.data(), cr.size() * sizeof(real)));
+    }
     size_t stack = (size_t)getd(argc, argv, "stack", 0);
     if (stack) CK(cudaDeviceSetLimit(cudaLimitStackSize, stack));
     cudaDeviceProp prop; CK(cudaGetDeviceProperties(&prop, dev));
@@ -771,11 +814,16 @@ int main(int argc, char** argv) {
     CK(cudaMemcpy(acc.data(), S.acc, NMOVE * R * sizeof(long long), cudaMemcpyDeviceToHost));
 
     // jackknife over groups of replicas (ratio estimators <O> = sum O / sum nZ);
-    // derived: rho_s/rho = <D2>/(2 lam d beta <N>)
-    const int NQ = NOBS + 1;
+    // derived: rho_s/rho = <D2>/(2 lam d beta <N>), <dN^2>, <W^2> = <D2>/(d Lbox^2),
+    // K = pi sqrt(<W^2> <dN^2>)
+    enum { Q_RS = NOBS, Q_DN2, Q_W2, Q_K, NQ };
+    const double Lb = p.Lbox;
     auto derive = [&](const double* m, double* q) {
         for (int k = 0; k < NOBS; k++) q[k] = m[k];
-        q[NOBS] = m[O_N] > 0 ? m[O_D2] / (2.0 * lam * DIM * beta * m[O_N]) : 0.0;
+        q[Q_RS] = m[O_N] > 0 ? m[O_D2] / (2.0 * lam * DIM * beta * m[O_N]) : 0.0;
+        q[Q_DN2] = m[O_N2] - m[O_N] * m[O_N];
+        q[Q_W2] = m[O_D2] / (DIM * Lb * Lb);
+        q[Q_K] = M_PI * sqrt(std::max(0.0, q[Q_W2] * q[Q_DN2]));
     };
     std::vector<double> gO(ngroups * NOBS, 0), gZ(ngroups, 0);
     double TO[NOBS] = {0}, TZ = 0, TA = 0; long long OV = 0;
@@ -805,7 +853,10 @@ int main(int argc, char** argv) {
     printf("TIMING therm=%.2fs prod=%.2fs prod_rate=%.4g steps/s\n", th > 0 ? tth : 0.0, secs - tth,
            secs > tth ? (double)total * p.R / (secs - tth) : 0.0);
     printf("RESULT2 E= %.5f +- %.5f   D2= %.5f +- %.5f   rhos= %.5f +- %.5f\n",
-           mean[O_E], err[O_E], mean[O_D2], err[O_D2], mean[NOBS], err[NOBS]);
+           mean[O_E], err[O_E], mean[O_D2], err[O_D2], mean[Q_RS], err[Q_RS]);
+    printf("RESULT3 dN2= %.5f +- %.5f   W2= %.5e +- %.2e   K= %.5f +- %.5f\n",
+           mean[Q_DN2], err[Q_DN2], mean[Q_W2], err[Q_W2], mean[Q_K], err[Q_K]);
+    if (p.ndis) printf("DISORDER Vd=%g qc=%g dseed=%llu modes=%d\n", Vd, qc, dseed, p.ndis);
     printf("CYCLES");
     for (int k = 0; k < NCYC; k++)
         printf(" n%d%s= %.7f +- %.7f", k + 1, k == NCYC - 1 ? "+" : "", mean[O_C + k], err[O_C + k]);

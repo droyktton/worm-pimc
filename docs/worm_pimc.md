@@ -36,6 +36,18 @@ The default is $\hbar = m = 1$, that is $\lambda = 1/2$ (parameter `lam`).
 V_{\rm ext}(\mathbf r) = \tfrac12\,\omega^2 r^2 .
 ```
 
+**Disorder** (parameters `Vd`, `qc`, `dseed`; off when `Vd=0`). A smooth random potential, periodic in the box, is added to $V_{\rm ext}$ along each axis:
+
+```math
+V_{\rm dis}(x) = V_d\sqrt{\frac{2}{M}}\sum_{k=1}^{M}\cos\!\Big(\frac{2\pi k x}{L} + \phi_k\Big),
+\qquad M = \Big\lfloor \frac{q_c L}{2\pi}\Big\rfloor .
+```
+
+- All modes up to the wavevector $q_c$ have the same amplitude, so the statistics of the disorder do not depend on $L$; the correlation length is about $1/q_c$.
+- The phases $\phi_k$ are uniform in $[0, 2\pi)$. They come from a splitmix64 generator seeded with `dseed`, so the CPU code, the GPU code and `exact_disorder.py` build the same realisation.
+- The spatial variance of every realisation is exactly $V_d^2$.
+- It is evaluated as $\mathrm{Re}\sum_k c_k z^k$ with $z = e^{2\pi i x/L}$ (Horner's rule): one sine/cosine and $M$ complex multiply-adds per call.
+
 **Pair potentials** (parameter `pot`):
 
 | `pot` | potential | parameters |
@@ -174,12 +186,22 @@ All estimators are accumulated in the Z sector every `meas` steps.
 | Winding | $\mathbf D = \sum_{\rm links}\Delta\mathbf r$ (minimum image), reported as $D^2 = \lvert\mathbf D\rvert^2$ |
 | Superfluid fraction | $`\rho_s/\rho = \dfrac{\langle D^2\rangle}{2\lambda\, d\,\beta\,\langle N\rangle}`$ |
 | Exchange cycles | $n_j$ = number of particles in permutation cycles of length $j$, for $j = 1,\dots,11$; the last bin collects $j\ge12$, and $\sum_j n_j = N$ |
+| Number fluctuations | $`\langle\delta N^2\rangle = \langle N^2\rangle - \langle N\rangle^2`$ |
+| Winding number | $`\langle W^2\rangle = \langle D^2\rangle/(d L^2)`$ (per axis) |
+| Luttinger parameter (1D) | $`K = \pi\sqrt{\langle W^2\rangle\,\langle\delta N^2\rangle}`$ |
 
 **Energy.** The thermodynamic estimator is $-\partial_\beta$ of $\ln W$ at fixed $P$ and fugacity. In the Z sector the number of links equals $N_b$, so its average equals the internal energy of the discretised system *exactly* (no Trotter error relative to the PA reference).
 
 **Exchange cycles.** A closed worldline of $j$ particles has $jP$ beads and crosses slice 0 exactly $j$ times. The estimator walks the loop from every bead of slice 0 and adds 1 to bin $j = \ell/P$, where $\ell$ is the number of beads in the loop, so each cycle of length $j$ contributes $j$ to $n_j$. The number of bins is the compile-time constant `NCYC` = 12.
 
 **Superfluid fraction.** This is the Pollock–Ceperley winding-number estimator [4], $\rho_s/\rho = m\langle W^2\rangle L^2/(d\hbar^2\beta N)$ with $\mathbf D = L\mathbf W$. In the grand-canonical ensemble the ratio of averages is used.
+
+**Luttinger parameter.** In 1D, with $\hbar = 1$, the superfluid stiffness and the compressibility are $`\Upsilon_s = L\langle W^2\rangle/\beta`$ and $`\kappa = \beta\langle\delta N^2\rangle/L`$. Then $`K = \pi\sqrt{\Upsilon_s\kappa}`$ reduces to the formula in the table, which does not depend on $\lambda$ or on the units.
+
+- For a Luttinger liquid, $W$ and $N$ are discrete Gaussians with variances $`\sigma_W^2 = K\beta v/\pi L`$ and $`\sigma_N^2 = K L/\pi\beta v`$, where $v$ is the sound velocity.
+- When both are wide, the formula gives $K$ at any temperature and size.
+- Otherwise the discreteness matters, and the reported number is a finite-size estimate: invert the discrete-Gaussian forms of $\langle W^2\rangle$ and $\langle\delta N^2\rangle$ separately.
+- With disorder, $\langle W^2\rangle$ and $\langle\delta N^2\rangle$ are averaged over realisations before $K$ is formed.
 
 **Statistical errors.**
 
@@ -239,6 +261,42 @@ E = -\partial_\beta\ln\Xi|_\mu + \mu\langle N\rangle .
 ```
 
 The mean number of particles in cycles of length $j$ is the $j$-th term of $\langle N\rangle$, $\langle n_j\rangle = e^{\beta\mu j} z(j)^d$ (`--cycles`).
+
+### 5.3 Ideal Bose gas with disorder, 1D (`exact_disorder.py`)
+
+**Method.** For non-interacting bosons the grand partition function follows from the spectrum of the one-slice transfer operator of the primitive approximation. It is discretised on a uniform grid of $M$ points (spacing $h = L/M$):
+
+```math
+T_\theta(x, x') = h\, e^{-\tau V(x)/2}\, \sum_{n} G_0(x' - x + nL;\tau)\, e^{i\theta (x' - x + nL)/L}\, e^{-\tau V(x')/2}.
+```
+
+- The kernel is periodic and smooth, so the trapezoid rule converges spectrally. $M = 256$ and $M = 512$ agree to $10^{-7}$ in the validation cases.
+- The twist $\theta$ counts windings: a closed cycle collects the phase $\theta w$.
+
+**Observables.** With $t_i(\theta)$ the eigenvalues of the Hermitian matrix $T_\theta$, $\Lambda_i = t_i^P$ and $f = e^{\beta\mu}$:
+
+```math
+\ln\Xi(\theta) = -\sum_i \ln\big(1 - f\Lambda_i\big),
+\qquad
+\langle N\rangle = \sum_i n_i,
+\qquad
+\langle\delta N^2\rangle = \sum_i n_i(1 + n_i),
+\qquad
+n_i = \frac{f\Lambda_i}{1 - f\Lambda_i},
+```
+
+```math
+\langle D^2\rangle = -L^2\,\partial_\theta^2 \ln\Xi\big|_{\theta=0},
+\qquad
+\langle n_j\rangle = \sum_i (f\Lambda_i)^j .
+```
+
+- $\bar V$ follows from the derivative with respect to a scale factor of $V$.
+- $E = -\partial_\beta\ln\Xi|_\mu + \mu\langle N\rangle$, at fixed $P$.
+- Derivatives are taken by central differences.
+- This is the same discretisation that the Monte Carlo samples, up to the minimum-image truncation of single links, so there is no Trotter error.
+- $\mu$ must lie below the lowest level $e_0 = -\ln t_0/\tau$, which the script prints; `--dmu` sets $\mu = e_0 + \Delta\mu$.
+- With `--Vd 0` it reproduces `exact_ideal.py` in 1D.
 
 ---
 
@@ -309,6 +367,7 @@ Every parameter is given on the command line as `key=value`. Defaults are in bra
 | `pot` [0], `kappa` [0], `eps` [1], `sig` [1] | pair potential (Section 1) | ✓ | ✓ |
 | `rc` [∞, or $L/2$ with pbc] | pair cutoff | ✓ | ✓ |
 | `N0` [0] | start from `N0` straight closed worldlines on a simple lattice | ✓ | ✓ |
+| `Vd` [0], `qc` [2], `dseed` [1] | disorder: strength, maximum wavevector, realisation (Section 1); at most `DMAX` = 512 modes on the GPU | ✓ | ✓ |
 | `steps` [CPU 2e7 / GPU 1e6], `therm` [2e6 / 1e5] | production / thermalisation steps (**per replica** on the GPU) | ✓ | ✓ |
 | `meas` [20] | measure every `meas` steps | ✓ | ✓ |
 | `blocks` [CPU 20 / GPU 32] | jackknife blocks (CPU) or replica groups (GPU) | ✓ | ✓ |
@@ -330,6 +389,8 @@ If a parameter is given more than once, the last occurrence wins.
 RESULT N= <N> +- err   Vbar= ... +- ...   Zfrac= ...   time=...s  [GPU: rate=... steps/s  overflow=...]
 TIMING therm=...s prod=...s prod_rate=... steps/s
 RESULT2 E= ... +- ...   D2= ... +- ...   rhos= ... +- ...
+RESULT3 dN2= ... +- ...   W2= ... +- ...   K= ... +- ...
+DISORDER Vd=... qc=... dseed=... modes=...          (only with Vd != 0)
 CYCLES n1= ... +- ... n2= ... +- ... ... n11= ... +- ... n12+= ... +- ...
 acceptance: open=... close=... insert=... remove=... advH=... recH=... advT=... recT=... swap=... stage=...
 ```
@@ -575,7 +636,30 @@ The table combines the two starts of each precision (inverse-variance mean).
 - **System B, double.** χ²/dof is 6.5/4 for N, V̄, E, ρs and 15.7/12 for the cycle bins. The largest deviations are ρs/ρ (+2.0σ) and $n_{\ge12}$ (+2.2σ). Both come from the $N_0=100$ run (+2.3σ and +2.6σ); the $N_0=64$ run agrees (χ² = 2.4/4).
 - **What this means.** Long cycles and the winding are the slowest observables, so an under-thermalised run or a statistical fluctuation are the most likely explanations. Float, which uses the same code path, agrees. Two more independent double and float runs of B (`TAG=_s1`, `_s2`) have been prepared to settle it.
 
-### 9.6 Internal consistency
+### 9.6 Ideal gas in a disorder potential, 1D (`validation/disorder.sh`)
+
+This test checks the disorder potential and the new estimators $\langle\delta N^2\rangle$, $\langle W^2\rangle$ and $K$ against `exact_disorder.py` (Section 5.3), with no Trotter error.
+
+- **Runs.** CPU with $4\times10^7$ steps; GPU `W=1`, double and float, with $R=16384$ replicas × $4\times10^5$ steps. In all cases $\lambda=1/2$, $L=8$ and $L_{\max}=8$.
+- **Chemical potential.** $\mu = e_0 + \Delta\mu$, where $e_0$ is the lowest level of the discretised one-body problem.
+- **Cases.** They range from weak disorder with a sizeable superfluid fraction to strong disorder with no winding at all.
+- **Test statistic.** Each χ² is over about 20 numbers: N, V̄, E, D², ρs/ρ, ⟨δN²⟩, ⟨W²⟩, K and the 12 cycle bins. They are strongly correlated within a run (N, the $n_j$, ⟨δN²⟩ and K move together), so χ² is only indicative.
+
+| case | exact N | exact ρs/ρ | exact K | CPU: χ²/dof, max dev. | GPU double | GPU float |
+|---|---|---|---|---|---|---|
+| β=2, P=16, $V_d$=0.3, $q_c$=6, Δμ=−0.3 | 1.9935 | 0.0388 | 0.298 | 30.7/20, 2.8σ | 28.5/20, 2.7σ | 12.8/20, 1.4σ |
+| β=2, P=16, $V_d$=3, $q_c$=6, Δμ=−0.3 | 1.2435 | 2.7×10⁻⁶ | 0.0017 | 22.2/16, 2.1σ | 15.5/18, 2.1σ | 18.6/18, 2.0σ |
+| β=4, P=32, $V_d$=0.3, $q_c$=4, Δμ=−0.1 | 2.3553 | 0.1773 | 1.298 | 12.6/20, 1.3σ | 70.2/20, 2.7σ | 6.3/20, 1.5σ |
+
+- **Precision reached.** In the third case the GPU reproduces ρs/ρ and K to 0.2%. For example, float gives K = 1.2976(23) against 1.2983 exact, and ⟨δN²⟩ = 6.535(12) against 6.542.
+- **Strong disorder.** The superfluid fraction is $3\times10^{-6}$ and almost no winding occurs, so only N, V̄, E, ⟨δN²⟩ and the cycles are tested there. A run without any winding is skipped for D², ρs/ρ, ⟨W²⟩ and K.
+- **The one large χ² (GPU double, third case)** is one correlated fluctuation: N +2.7σ, with the $n_j$, ⟨δN²⟩ and K following it. Two more double runs with other seeds give N = 2.3567(22) (+0.6σ) and 2.3530(21) (−1.1σ), and K = 1.3007(24) and 1.2992(23).
+- **CPU, earlier case.** A CPU run of a further case ($L=16$, β=4, $V_d=0.5$) came out −2.4σ in N. Four new seeds with 4× more steps give N = 2.4554(93) against 2.4537 exact.
+- **Vd = 0.** With `Vd=0` the output is bit-identical to the code without disorder. This was checked with same-seed runs on the CPU and on the GPU (double and float, `W=1` and `W=32`), in a 2D trap with ω=0.7 and κ=0.3 and in a periodic 2D Lennard-Jones system.
+
+The full table is printed by `python3 validation/analyze.py disorder`.
+
+### 9.7 Internal consistency
 
 `test_warp.sh` checks the GPU code itself:
 
@@ -583,16 +667,17 @@ The table combines the two starts of each precision (inverse-variance mean).
 - The list-consistency checks (`debug=1`) pass.
 - `compute-sanitizer` reports 0 errors in both modes.
 
-### 9.7 Reproducing the validation
+### 9.8 Reproducing the validation
 
 The scripts in `validation/` write their raw output to `validation/out/`. Run them from the repository root:
 
 ```bash
 sbatch -p gpu --gres=gpu:1 validation/trotter.sh 1 0.5 3e-3      # also: 2 1.5 3e-4 and 3 2.0 1e-4
 sbatch -p gpu --gres=gpu:1 validation/cycles_ideal.sh
+sbatch -p gpu --gres=gpu:1 -c2 validation/disorder.sh            # about 40 min (GPU double dominates)
 sbatch -p cpu -N1 --exclusive validation/lj100_cpu.sh A           # B: add --export=ALL,THERM=4e7,MEAS=100
 sbatch -p gpu --gres=gpu:1 validation/lj100_gpu.sh A double       # A|B, double|float
-python3 validation/analyze.py      # summary tables (markdown); trotter | cycles | lj100
+python3 validation/analyze.py      # summary tables (markdown); trotter | cycles | disorder | lj100
 python3 validation/figures.py      # docs/figures/val_*.png
 ```
 

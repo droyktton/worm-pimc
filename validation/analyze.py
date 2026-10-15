@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Summaries of the validation runs in validation/out/ (markdown tables on stdout).
-usage (from the repository root, on a compute node): python3 validation/analyze.py [trotter|cycles|lj100]"""
+usage (from the repository root, on a compute node): python3 validation/analyze.py [trotter|cycles|disorder|lj100]"""
 import csv, glob, math, os, re, sys
 import numpy as np
 from scipy.stats import chi2 as chi2dist
@@ -95,6 +95,31 @@ def cycles():
                 print(f"| {case} | {k} | {float(v['double']['exact']):.5f} | {f('double')} | {f('float')} |")
 
 
+def disorder():
+    path = f"{OUT}/disorder.csv"
+    if not os.path.exists(path):
+        return
+    R = rows(path)
+    print(f"\n### Ideal Bose gas with disorder, 1D  ({path})\n")
+    print("Observables of one run are correlated (N, the n_j, dN2 and K move together), so chi2 is only indicative.")
+    print("Runs without a single winding (mc = 0 up to round-off) are skipped for D2, rhos, W2, K.\n")
+    for case in dict.fromkeys(r["case"] for r in R):
+        for code in ("cpu", "double", "float"):
+            v = [r for r in R if r["case"] == case and r["code"] == code]
+            z = [((float(r["mc"]) - float(r["exact"])) / float(r["err"]), r["obs"]) for r in v
+                 if float(r["err"]) > 0 and abs(float(r["mc"])) > 1e-20]
+            x2 = sum(t * t for t, _ in z)
+            w = max(z, key=lambda t: abs(t[0]))
+            print(f"- {case}, {code}: chi2/dof = {x2:.1f}/{len(z)}, max |dev| = {abs(w[0]):.1f}σ ({w[1]})")
+    print("\n| case | obs | exact | CPU | GPU double | GPU float |")
+    print("|---|---|---|---|---|---|")
+    for case in dict.fromkeys(r["case"] for r in R):
+        for k in ("N", "Vbar", "E", "rhos", "dN2", "K"):
+            v = {r["code"]: r for r in R if r["case"] == case and r["obs"] == k}
+            f = lambda c: f"{float(v[c]['mc']):.5g} ± {float(v[c]['err']):.1g}" if c in v else "—"
+            print(f"| {case} | {k} | {float(v['cpu']['exact']):.5g} | {f('cpu')} | {f('double')} | {f('float')} |")
+
+
 def parse_run(path):
     s = open(path).read()
     out = {}
@@ -186,6 +211,6 @@ def lj100():
 
 
 if __name__ == "__main__":
-    what = sys.argv[1:] or ["trotter", "cycles", "lj100"]
+    what = sys.argv[1:] or ["trotter", "cycles", "disorder", "lj100"]
     for w in what:
         globals()[w]()
