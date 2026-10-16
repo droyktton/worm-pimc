@@ -37,6 +37,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
+#include <map>
 #include <vector>
 #include <array>
 #include <random>
@@ -435,7 +436,7 @@ struct Sim {
     }
 
     // ---- observables (Z sector)
-    enum { O_N, O_V, O_E, O_D2, O_C, O_N2 = O_C + NCYC, NOBS };
+    enum { O_N, O_V, O_E, O_D2, O_C, O_N2 = O_C + NCYC, O_W1, NOBS };
     void measure(double* o) const {
         double Nb = (double)act.size();
         double e = 0;
@@ -467,6 +468,7 @@ struct Sim {
         o[O_E] = (0.5 * DIM * Nb / tau - k2 / (4.0 * lam * tau * tau)) / P + e / P;
         o[O_D2] = D2;
         o[O_N2] = o[O_N] * o[O_N];
+        o[O_W1] = D[0] / Lbox;      // winding number along x (integer with pbc)
     }
 
     void step() {
@@ -575,6 +577,7 @@ int main(int argc, char** argv) {
     for (auto& a : bs) a.fill(0.0);
     std::vector<long> bn(nblocks, 0);
     long nZ = 0, nAll = 0;
+    std::map<long, long> histN, histW;      // Z-sector histograms of N and of the x winding
     auto t0 = std::chrono::steady_clock::now();
     double tth = 0;
     for (long it = 0; it < th + total; it++) {
@@ -588,6 +591,8 @@ int main(int argc, char** argv) {
                 double o[Sim::NOBS]; S.measure(o);
                 int b = (int)std::min<long>((it - th) / blockLen, nblocks - 1);
                 for (int k = 0; k < NO; k++) bs[b][k] += o[k];
+                histN[std::lround(o[Sim::O_N])]++;
+                if (S.pbc) histW[std::lround(o[Sim::O_W1])]++;
                 bn[b]++;
             }
         }
@@ -630,6 +635,9 @@ int main(int argc, char** argv) {
     for (int k = 0; k < NCYC; k++)
         printf(" n%d%s= %.7f +- %.7f", k + 1, k == NCYC - 1 ? "+" : "", mean[Sim::O_C + k], err[Sim::O_C + k]);
     printf("\n");
+    // histograms for the discrete-Gaussian (theta-function) form of the Luttinger zero modes
+    printf("HISTN"); for (auto& h : histN) printf(" %ld:%ld", h.first, h.second); printf("\n");
+    if (S.pbc) { printf("HISTW"); for (auto& h : histW) printf(" %ld:%ld", h.first, h.second); printf("\n"); }
     printf("acceptance:");
     for (int i = 0; i < 10; i++) printf(" %s=%.3f(%ld)", names[i], S.att[i] ? (double)S.acc[i] / S.att[i] : 0.0, S.att[i]);
     printf("\n");
