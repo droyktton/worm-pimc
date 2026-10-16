@@ -138,10 +138,10 @@ The scripts are `validate_gpu.sh`, `validate_pbc.sh`, `ref_lj_cpu.sh`, `lj_gpu.s
 | Vbar | −51.742(47) | −51.710(26) | −51.724(33) |
 | E | 2.951(58) | 2.973(27) | 2.953(21) |
 
-- **Trotter scan** (`validation/trotter.sh`, trap with κ=0.3, β=2, P=4…64, d=1,2,3). The MC matches the exact PA at every P, even where the Trotter error is hundreds of σ; no deviation exceeds 2.6σ in 243 numbers. The τ² extrapolation reaches the exact continuum within 1.6σ, except N in 3D (−2.3σ; a second 3D scan is pending).
+- **Trotter scan** (`validation/trotter.sh`, trap with κ=0.3, β=2, P=4…64, d=1,2,3). The MC matches the exact PA at every P, even where the Trotter error is hundreds of σ; no deviation exceeds 2.6σ in 243 numbers. The τ² extrapolation reaches the exact continuum within 1.6σ, except N in 3D (−2.3σ). A second 3D scan agrees (N vs exact PA: p = 0.81; τ→0 within 1.6σ). Both 3D scans combined are −2.1σ in N, while the fixed-P test still passes (p = 0.30).
 - **Exchange cycles** (`validation/cycles_ideal.sh`). The full distribution ⟨n_j⟩ of the ideal gas matches the exact cycle expansion in 1D/2D/3D, including a case near condensation, in double and float: χ²/dof between 10.9/15 and 19.0/15.
 - **Disorder** (`validation/disorder.sh`). The 1D ideal gas in three disorder realisations, from ρs/ρ = 0.18 down to 3·10⁻⁶, matches `exact_disorder.py` on the CPU and on the GPU in double and float. This covers N, V̄, E, ρs, ⟨δN²⟩, K and the cycles; the GPU reproduces K to 0.2%. With `Vd=0` the output is bit-identical to the code without disorder.
-- **N ≈ 100** (`validation/lj100_*.sh`). The GPU (W=32) agrees with a 56-seed CPU reference for a dense LJ liquid and for a degenerate LJ gas with ρs/ρ ≈ 0.41 and long exchange cycles: N, V̄, E, ρs and 12 cycle bins. One double-precision run of the gas is 2.0–2.6σ off in ρs and the longest cycles; extra seeds are pending.
+- **N ≈ 100** (`validation/lj100_*.sh`). The GPU (W=32) agrees with a 56-seed CPU reference for a dense LJ liquid and for a degenerate LJ gas with ρs/ρ ≈ 0.41 and long exchange cycles: N, V̄, E, ρs and 12 cycle bins. One early double run of the gas was 2.3–2.6σ off in ρs and the longest cycles. Two extra seeds per precision do not reproduce this, and the eight GPU runs combined are within 1.9σ of the CPU.
 
 ### Performance
 Benchmark: 3D LJ at ρσ³ = 0.7, T = 1, P = 32, thermalised production, total MC steps/s (`bench_N2.sh`, `bench_cpu_N.sh`):

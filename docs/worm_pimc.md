@@ -564,14 +564,17 @@ This test checks the discretisation itself. The setup is the trap with harmonic 
 | 1 | 0.5 | 3·10⁻³ | 12.0/9 (0.21) | −2.6σ (n₅, P=4) | 1.63239(32) / 1.63284 | 1.12858(30) / 1.12874 |
 | 2 | 1.5 | 3·10⁻⁴ | 12.0/9 (0.22) | +2.2σ (V̄, P=8) | 2.76198(45) / 2.76133 | 3.92677(77) / 3.92561 |
 | 3 | 2.0 | 10⁻⁴ | 17.6/9 (0.04) | +2.4σ (n₂, P=8) | 2.00425(34) / 2.00506 | 4.10473(84) / 4.10512 |
+| 3 (run 2) | 2.0 | 10⁻⁴ | 5.3/9 (0.81) | −3.7σ (n₅, P=12) | 2.00485(33) / 2.00506 | 4.10385(79) / 4.10512 |
 
 The τ→0 columns come from a weighted fit $a + b\tau^2$ to the points with $\tau \le 1/6$ ($P \ge 12$).
 
 ![Trotter scan](figures/val_trotter.png)
 
-- **The PA is resolved exactly.** At $P=4$ the Trotter error of $\langle N\rangle$ is 0.07–0.18, i.e. several hundred standard errors, and the Monte Carlo still agrees with the PA at the same $P$. Across all $P$ and observables (243 numbers) no deviation exceeds 2.6σ.
+- **The PA is resolved exactly.** At $P=4$ the Trotter error of $\langle N\rangle$ is 0.07–0.18, i.e. several hundred standard errors, and the Monte Carlo still agrees with the PA at the same $P$. Across all $P$ and observables of the first three scans (243 numbers) no deviation exceeds 2.6σ. The second 3D scan adds 81 numbers, one of them at −3.7σ ($n_5$ at $P=12$); the others are within 2.4σ.
 - **The τ² law and the continuum limit.** The extrapolations agree with the exact continuum within 1.6σ, except $\langle N\rangle$ in 3D (−2.3σ).
-- **The 3D case.** The 3D scan has p = 0.04 for N, and its extrapolated N is 2.3σ low. Both are borderline. A second independent 3D scan (`TAG=_run2 SEEDOFF=1000`) has been prepared to decide whether this is a fluctuation; it has not been run yet.
+- **The 3D case.** The first 3D scan has p = 0.04 for N, and its extrapolated N is 2.3σ low. A second independent scan (`TAG=_run2 SEEDOFF=1000`) does not repeat this: N matches the exact PA with χ² = 5.3/9 (p = 0.81), and the extrapolations are −0.6σ (N), −1.3σ (V̄) and −1.6σ (E).
+- **Both 3D scans combined** (inverse-variance mean at each $P$). N against the exact PA gives χ² = 10.7/9 (p = 0.30). The extrapolations are N = 2.00457(24) (−2.1σ), V̄ = 2.05208(24) (−2.0σ) and E = 4.10428(58) (−1.4σ).
+- **The fit itself is not biased.** The same fit applied to the exact PA values returns the continuum to $2	imes10^{-6}$ (below 0.01σ). The strict test at fixed $P$ passes. The remaining −2σ of the extrapolated N and V̄ (two correlated quantities) is therefore read as a fluctuation: the extrapolation amplifies the errors of the $P = 12$–16 points.
 
 ### 9.4 Exchange cycles of the ideal gas (`validation/cycles_ideal.sh`)
 
@@ -617,24 +620,26 @@ No exact result exists for an interacting many-body system, so here the GPU code
 - **GPU runs.** `W=32`, 512 replicas × $10^7$ steps after $10^7$ thermalisation steps, in double and in float, each from $N_0=100$ and from $N_0=64$.
 - **Equilibration check.** The two starts agree in every column (`analyze.py lj100` prints them separately).
 
-The table combines the two starts of each precision (inverse-variance mean).
+The table combines all runs of each precision (inverse-variance mean). For A these are the two starts. For B they are four runs: the two starts plus two extra seeds from $N_0=100$ (`TAG=_s1`, `_s2`).
 
 | | A: CPU | A: GPU double | A: GPU float | B: CPU | B: GPU double | B: GPU float |
 |---|---|---|---|---|---|---|
-| N | 101.433(13) | 101.413(13) | 101.394(13) | 90.590(11) | 90.583(14) | 90.593(13) |
-| V̄ | −353.827(91) | −353.701(95) | −353.600(95) | −47.188(12) | −47.181(16) | −47.185(15) |
-| E | −45.583(77) | −45.583(67) | −45.627(72) | 140.721(92) | 140.538(88) | 140.850(87) |
-| ρs/ρ | 0 | 0 | 0 | 0.41232(85) | 0.41471(80) | 0.41231(71) |
-| n₁ | = N | = N | = N | 63.766(26) | 63.706(23) | 63.783(24) |
-| n₂ | 0 | 0 | 0 | 3.8507(73) | 3.8397(62) | 3.8373(68) |
-| n₍≥12₎ | 0 | 0 | 0 | 12.901(31) | 12.987(24) | 12.927(29) |
+| N | 101.433(13) | 101.413(13) | 101.394(13) | 90.590(11) | 90.585(11) | 90.5846(98) |
+| V̄ | −353.827(91) | −353.701(95) | −353.600(95) | −47.188(12) | −47.181(12) | −47.174(11) |
+| E | −45.583(77) | −45.583(67) | −45.627(72) | 140.721(92) | 140.522(59) | 140.625(60) |
+| ρs/ρ | 0 | 0 | 0 | 0.41232(85) | 0.41451(61) | 0.41323(58) |
+| n₁ | = N | = N | = N | 63.766(26) | 63.709(18) | 63.735(19) |
+| n₂ | 0 | 0 | 0 | 3.8507(73) | 3.8395(46) | 3.8381(48) |
+| n₍≥12₎ | 0 | 0 | 0 | 12.901(31) | 12.976(19) | 12.956(21) |
 
 ![GPU versus CPU at N ≈ 100](figures/val_lj100.png)
 
 - **System A** is a dense liquid at $\lambda = 0.05$ with no exchange. All numbers agree within 2.1σ (float N). Note that V̄ is shifted by +1.0σ (double) and +1.7σ (float), in the same direction in both precisions.
-- **System B, float.** All 16 numbers agree with the CPU: χ²/dof = 1.1/4 for N, V̄, E, ρs and 8.3/12 for the cycle bins.
-- **System B, double.** χ²/dof is 6.5/4 for N, V̄, E, ρs and 15.7/12 for the cycle bins. The largest deviations are ρs/ρ (+2.0σ) and $n_{\ge12}$ (+2.2σ). Both come from the $N_0=100$ run (+2.3σ and +2.6σ); the $N_0=64$ run agrees (χ² = 2.4/4).
-- **What this means.** Long cycles and the winding are the slowest observables, so an under-thermalised run or a statistical fluctuation are the most likely explanations. Float, which uses the same code path, agrees. Two more independent double and float runs of B (`TAG=_s1`, `_s2`) have been prepared to settle it.
+- **System B, first two starts.** Float agreed with the CPU in all 16 numbers. Double had χ²/dof = 6.5/4 for N, V̄, E, ρs, with ρs/ρ at +2.0σ and $n_{\ge12}$ at +2.2σ, both coming from the $N_0=100$ run (+2.3σ and +2.6σ).
+- **The extra seeds do not reproduce it.** The two new double runs give ρs/ρ = 0.4138(14) and 0.4146(12) (+0.9σ and +1.5σ), with χ² = 5.0/4 and 5.3/4 for N, V̄, E, ρs. The largest single deviation now sits in a *float* run (`_s2`: ρs/ρ +2.7σ, $n_{\ge12}$ +2.5σ). The outlier moves between runs and precisions, as a fluctuation does.
+- **All four runs of each precision against the CPU.** Float: χ²/dof = 2.4/4 (N, V̄, E, ρs) and 7.8/12 (cycle bins). Double: 8.0/4 (p = 0.09) and 16.7/12, largest ρs/ρ +2.1σ and $n_{\ge12}$ +2.0σ.
+- **All eight GPU runs together.** They are consistent with each other: χ²/7 = 5.2 (N), 4.6 (V̄), 13.3 (ρs, p = 0.07), 15.8 (E, p = 0.03). Against the CPU: N −0.4σ, V̄ +0.7σ, E −1.5σ, ρs/ρ +1.6σ, $n_1$ −1.6σ, $n_{\ge12}$ +1.9σ. The last three move together: more particles in long cycles means fewer in $n_1$ and a larger winding. So they are one fluctuation of the slow sector, at the 0.4% level in ρs.
+- **Conclusion.** There is no evidence of a GPU bias, in either precision. The scatter of E between GPU runs (p = 0.03) hints that the per-run error bars may be slightly small. This is left for the error-bar calibration.
 
 ### 9.6 Ideal gas in a disorder potential, 1D (`validation/disorder.sh`)
 
