@@ -1,0 +1,1 @@
+host=node171.cluster cpu= Intel(R) Xeon(R) Gold 6330 CPU @ 2.00GHz

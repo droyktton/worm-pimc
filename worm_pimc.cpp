@@ -20,7 +20,9 @@
 //
 // Options: pbc=1 (periodic box of side Lbox, minimum image on links and
 // pairs), pot=0 harmonic pair kappa / 1 Lennard-Jones (eps,sig) / 2 Aziz
-// HFDHE2 for 4He (K, Angstrom; use lam=6.0596), pair cutoff rc.
+// HFDHE2 for 4He (K, Angstrom; use lam=6.0596), pair cutoff rc, 3 contact
+// g delta(x_i - x_j) in 1D (Lieb-Liniger) with the exact two-body pair-product action:
+// each pair of links on the same slice carries exp(-u), u = -ln[rho_rel/rho0_rel] (see ucontact).
 // Disorder (Vd > 0): V(x) = Vd sqrt(2/M) sum_{k=1..M} cos(2 pi k x/Lbox + phi_k)
 // added along each axis, M = floor(qc Lbox / 2 pi) modes up to wavevector qc,
 // random phases from dseed (splitmix64, identical in the GPU code); its spatial
@@ -68,6 +70,7 @@ struct Sim {
     double Vbox = 1.0;
     int pbc = 0, pot = 0;              // periodic box; pair potential type
     double eps = 1.0, sig = 1.0, rc = 1e300, rc2 = 1e300;
+    double gc = 0.0;                   // contact strength (pot=3); gc < 0: hard core (g = infinity)
     int ndis = 0;                      // disorder modes; dc = (Re, Im) of c_k, k = 1..ndis
     std::vector<double> dc;
 
@@ -139,7 +142,44 @@ struct Sim {
             default: return 0.5 * kappa * r2;
         }
     }
-    bool pairs() const { return pot != 0 || kappa != 0.0; }
+    bool pairs() const { return pot == 3 ? false : (pot != 0 || kappa != 0.0); }
+    bool linkact() const { return pot == 3; }
+
+    // ---- contact interaction: exact relative propagator of H = -D d^2/dr^2 + g delta(r), D = 2 lam,
+    // rho/rho0 = 1 - k sqrt(pi D t) exp(-(|r||r'| + r r')/(2 D t)) erfcx((|r| + |r'| + 2 k D t)/(2 sqrt(D t))),
+    // k = g/(2D); the exponential is 1 when the pair crosses (r r' < 0) and exp(-|r||r'|/(D t)) otherwise.
+    static double erfcx(double z) {
+        if (z < 25.0) return std::exp(z * z) * std::erfc(z);
+        double iz2 = 1.0 / (z * z);
+        return (1.0 - 0.5 * iz2 * (1.0 - 1.5 * iz2 * (1.0 - 2.5 * iz2))) / (z * std::sqrt(M_PI));
+    }
+    // g < 0 means g = infinity (hard core, Tonks-Girardeau): rho/rho0 = 1 - exp(-|r||r'|/(D t)), 0 if crossing
+    double ucontact(double r, double rp, double t, double g) const {
+        if (g < 0) return r * rp > 0 ? -std::log1p(-std::exp(-std::fabs(r * rp) / (2.0 * lam * t))) : INFINITY;
+        double D = 2.0 * lam, k = g / (2.0 * D), Dt = D * t, sq = std::sqrt(Dt);
+        double ar = std::fabs(r), arp = std::fabs(rp);
+        double w = r * rp > 0 ? std::exp(-ar * arp / Dt) : 1.0;
+        double f = k * std::sqrt(M_PI) * sq * w * erfcx((ar + arp + 2.0 * k * Dt) / (2.0 * sq));
+        return -std::log1p(-f);
+    }
+    // relative coordinate of the pair at slice s (r) and s+1 (rp), followed continuously along the link
+    inline void relpair(const double* a, const double* ap, const double* c, const double* cp, double& r, double& rp) const {
+        r = mimg(a[0] - c[0]);
+        rp = r + mimg((ap[0] - cp[0]) - (a[0] - c[0]));
+    }
+    // pair action of the link ra (slice s) -> rb (slice s+1) with every complete link on slice s,
+    // except the one starting at bead excl
+    double linkU(const double* ra, const double* rb, int s, int excl) const {
+        double e = 0, r, rp;
+        for (int c : sl[s]) {
+            if (c == excl || B[c].next < 0) continue;
+            relpair(ra, rb, B[c].r, B[B[c].next].r, r, rp);
+            e += ucontact(r, rp, tau, gc);
+        }
+        return e;
+    }
+    // same for the existing link that starts at bead b (excluding itself)
+    double linkUb(int b) const { return linkU(B[b].r, B[B[b].next].r, B[b].slice, b); }
 
     // potential felt by a bead at position r on slice s (others on that slice,
     // excluding bead 'excl'); pairs are attributed to the bead being added/removed
@@ -244,8 +284,10 @@ struct Sim {
         for (int j = 1; j <= m; j++) ch[j] = B[ch[j - 1]].next;
         double dV = 0;
         for (int j = 1; j <= m - 1; j++) dV += U(B[ch[j]].r, B[ch[j]].slice, ch[j]);
+        double dU = 0;
+        if (linkact()) for (int j = 0; j < m; j++) dU += linkUb(ch[j]);
         double logA = std::log(C) + std::log((double)Nb) + std::log((double)Lmax)
-                    + tau * dV - (m - 1) * mu * tau - logG0i(B[b0].r, B[ch[m]].r, m);
+                    + tau * dV + dU - (m - 1) * mu * tau - logG0i(B[b0].r, B[ch[m]].r, m);
         if (!accept(logA)) return false;
         for (int j = 1; j <= m - 1; j++) killBead(ch[j]);
         B[b0].next = -1; B[ch[m]].prev = -1;
@@ -264,8 +306,12 @@ struct Sim {
         bridge(B[head].r, bt, g, np);
         double dV = 0;
         for (int k = 1; k <= g - 1; k++) dV += U(np[k - 1].data(), wrap(sI + k), -1);
+        double dU = 0;
+        if (linkact())
+            for (int k = 0; k < g; k++)
+                dU += linkU(k == 0 ? B[head].r : np[k - 1].data(), k == g - 1 ? B[tail].r : np[k].data(), wrap(sI + k), -1);
         int NbAfter = (int)act.size() + (g - 1);
-        double logA = logG0i(B[head].r, B[tail].r, g) + (g - 1) * mu * tau - tau * dV
+        double logA = logG0i(B[head].r, B[tail].r, g) + (g - 1) * mu * tau - tau * dV - dU
                     - std::log(C) - std::log((double)NbAfter) - std::log((double)Lmax);
         if (!accept(logA)) return false;
         int cur = head;
@@ -286,6 +332,8 @@ struct Sim {
         std::vector<Vec> np; extend(r0.data(), ell, np);
         double dV = U(r0.data(), sM, -1);
         for (int k = 1; k <= ell; k++) dV += U(np[k - 1].data(), wrap(sM + k), -1);
+        if (linkact())
+            for (int k = 0; k < ell; k++) dV += linkU(k == 0 ? r0.data() : np[k - 1].data(), np[k].data(), wrap(sM + k), -1) / tau;
         double logA = std::log(C) + std::log(Vbox) + std::log((double)P) + std::log((double)Lmax)
                     + (ell + 1) * mu * tau - tau * dV;
         if (!accept(logA)) return false;
@@ -310,6 +358,7 @@ struct Sim {
         double dV = 0; b = head;
         while (true) {
             dV += U(B[b].r, B[b].slice, b);
+            if (linkact() && b != tail) dV += linkUb(B[b].prev) / tau;
             if (b == tail) break;
             b = B[b].prev;
         }
@@ -331,6 +380,12 @@ struct Sim {
         std::vector<Vec> np; extend(B[e].r, m, np);
         double dV = 0; int s0 = B[e].slice;
         for (int k = 1; k <= m; k++) dV += U(np[k - 1].data(), wrap(s0 + dir * k), -1);
+        if (linkact())
+            for (int k = 0; k < m; k++) {
+                const double* a = k == 0 ? B[e].r : np[k - 1].data();
+                if (dir > 0) dV += linkU(a, np[k].data(), wrap(s0 + k), -1) / tau;
+                else         dV += linkU(np[k].data(), a, wrap(s0 - k - 1), -1) / tau;
+            }
         double logA = m * mu * tau - tau * dV;
         if (!accept(logA)) return false;
         int cur = e;
@@ -357,6 +412,7 @@ struct Sim {
         att[idx]++;
         double dV = 0;
         for (int x : rem) dV += U(B[x].r, B[x].slice, x);
+        if (linkact()) for (int x : rem) dV += linkUb(dir > 0 ? B[x].prev : x) / tau;
         double logA = -m * mu * tau + tau * dV;
         if (!accept(logA)) return false;
         for (int x : rem) killBead(x);
@@ -401,6 +457,13 @@ struct Sim {
             int ob = oldc[m - 2 - k]; int sk = wrap(s + 1 + k);
             dV += U(np[k].data(), sk, ob) - U(B[ob].r, sk, ob);
         }
+        if (linkact())          // old links O_k -> O_k+1 (O_0 = q, O_m = j), new N_k -> N_k+1 (N_0 = h)
+            for (int k = 0; k < m; k++) {
+                int Ok = k == 0 ? q : oldc[m - 1 - k];
+                const double* Nk = k == 0 ? B[h].r : np[k - 1].data();
+                const double* Nk1 = k == m - 1 ? B[j].r : np[k].data();
+                dV += (linkU(Nk, Nk1, wrap(s + k), Ok) - linkUb(Ok)) / tau;
+            }
         double logA = (logsum1 - logsum2) - tau * dV;
         if (!accept(logA)) return false;
         for (int x : oldc) killBead(x);
@@ -416,7 +479,7 @@ struct Sim {
     // STAGING of a segment (any sector)
     bool stage_move() {
         int Nb = (int)act.size(); if (Nb == 0 || Lmax < 2) return false;
-        int a = act[rint(Nb)];
+        int a = act[rint(Nb)], a0 = a;
         int m = 2 + rint(Lmax - 1);                 // 2..Lmax
         std::vector<int> ch(m + 1); ch[0] = a;
         for (int j = 1; j <= m; j++) { int n = B[ch[j - 1]].next; if (n < 0) return false; ch[j] = n; }
@@ -430,6 +493,12 @@ struct Sim {
             int x = ch[j]; int sk = B[x].slice;
             dV += U(np[j - 1].data(), sk, x) - U(B[x].r, sk, x);
         }
+        if (linkact())
+            for (int j = 1; j <= m; j++) {
+                const double* a = j == 1 ? B[a0].r : np[j - 2].data();
+                const double* b = j == m ? B[ch[m]].r : np[j - 1].data();
+                dV += (linkU(a, b, B[ch[j - 1]].slice, ch[j - 1]) - linkUb(ch[j - 1])) / tau;
+            }
         if (!accept(-tau * dV)) return false;
         for (int j = 1; j <= m - 1; j++) for (int d = 0; d < DIM; d++) B[ch[j]].r[d] = np[j - 1][d];
         acc[9]++; return true;
@@ -439,13 +508,29 @@ struct Sim {
     enum { O_N, O_V, O_E, O_D2, O_C, O_N2 = O_C + NCYC, O_W1, NOBS };
     void measure(double* o) const {
         double Nb = (double)act.size();
-        double e = 0;
+        double e = 0, evx = 0;
         for (int s = 0; s < P; s++) {
             const std::vector<int>& L = sl[s];
             for (size_t i = 0; i < L.size(); i++) {
-                e += vext(B[L[i]].r);
+                double vx = vext(B[L[i]].r); e += vx; evx += vx;
                 if (pairs())
                     for (size_t j = i + 1; j < L.size(); j++) e += vpair(d2(B[L[i]].r, B[L[j]].r));
+            }
+        }
+        double du = 0;          // contact: sum over pair links of du/dtau (energy) and du/dg (-> <V_int>)
+        if (linkact()) {
+            const double ht = 1e-5 * tau, hg = 1e-5 * std::max(gc, 1e-8);
+            for (int s = 0; s < P; s++) {
+                const std::vector<int>& L = sl[s];
+                for (size_t i = 0; i < L.size(); i++) {
+                    if (B[L[i]].next < 0) continue;
+                    for (size_t j = i + 1; j < L.size(); j++) {
+                        if (B[L[j]].next < 0) continue;
+                        double r, rp; relpair(B[L[i]].r, B[B[L[i]].next].r, B[L[j]].r, B[B[L[j]].next].r, r, rp);
+                        du += (ucontact(r, rp, tau + ht, gc) - ucontact(r, rp, tau - ht, gc)) / (2 * ht);
+                        if (gc > 0) e += gc * (ucontact(r, rp, tau, gc + hg) - ucontact(r, rp, tau, gc - hg)) / (2 * hg) / tau;
+                    }
+                }
             }
         }
         double k2 = 0, D[DIM] = {0};
@@ -465,7 +550,8 @@ struct Sim {
         }
         o[O_N] = Nb / P;
         o[O_V] = e / P;
-        o[O_E] = (0.5 * DIM * Nb / tau - k2 / (4.0 * lam * tau * tau)) / P + e / P;
+        // with the contact action e/P = g <sum delta> (Hellmann-Feynman); its energy term is du/P instead
+        o[O_E] = (0.5 * DIM * Nb / tau - k2 / (4.0 * lam * tau * tau)) / P + (linkact() ? du / P + evx / P : e / P);
         o[O_D2] = D2;
         o[O_N2] = o[O_N] * o[O_N];
         o[O_W1] = D[0] / Lbox;      // winding number along x (integer with pbc)
@@ -540,6 +626,8 @@ int main(int argc, char** argv) {
     S.eps = getd(argc, argv, "eps", 1.0);
     S.sig = getd(argc, argv, "sig", 1.0);
     S.rc = getd(argc, argv, "rc", S.pbc ? 0.5 * S.Lbox : 1e300);
+    S.gc = getd(argc, argv, "g", 0.0);
+    if (S.pot == 3 && DIM != 1) { fprintf(stderr, "pot=3 (contact) needs DIM=1\n"); return 1; }
     double Vd = getd(argc, argv, "Vd", 0.0), qc = getd(argc, argv, "qc", 2.0);
     unsigned long long dseed = (unsigned long long)getd(argc, argv, "dseed", 1);
     if (Vd != 0.0) {
@@ -621,8 +709,8 @@ int main(int argc, char** argv) {
     }
     for (int k = 0; k < NQ; k++) err[k] = std::sqrt(err[k] * (nb - 1.0) / nb);
     const char* names[10] = {"open", "close", "insert", "remove", "advH", "recH", "advT", "recT", "swap", "stage"};
-    printf("DIM=%d P=%d beta=%g mu=%g C=%g Lmax=%d Lbox=%g omega=%g kappa=%g lam=%g pbc=%d pot=%d eps=%g sig=%g rc=%g steps=%.3g\n",
-           DIM, S.P, S.beta, S.mu, S.C, S.Lmax, S.Lbox, S.omega, S.kappa, S.lam, S.pbc, S.pot, S.eps, S.sig, S.rc, nsteps);
+    printf("DIM=%d P=%d beta=%g mu=%g C=%g Lmax=%d Lbox=%g omega=%g kappa=%g lam=%g pbc=%d pot=%d eps=%g sig=%g rc=%g g=%g steps=%.3g\n",
+           DIM, S.P, S.beta, S.mu, S.C, S.Lmax, S.Lbox, S.omega, S.kappa, S.lam, S.pbc, S.pot, S.eps, S.sig, S.rc, S.gc, nsteps);
     printf("RESULT N= %.5f +- %.5f   Vbar= %.5f +- %.5f   Zfrac= %.4f   time=%.1fs\n",
            mean[Sim::O_N], err[Sim::O_N], mean[Sim::O_V], err[Sim::O_V], nAll ? (double)nZ / nAll : 0.0, secs);
     printf("TIMING therm=%.2fs prod=%.2fs prod_rate=%.4g steps/s\n", tth, secs - tth, total / (secs - tth));

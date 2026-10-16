@@ -12,7 +12,6 @@ from collections import defaultdict
 import numpy as np
 from scipy.optimize import brentq, minimize
 
-d = sys.argv[1] if len(sys.argv) > 1 else "validation/out/lutt"
 NR = np.arange(-30, 31)
 
 
@@ -70,18 +69,6 @@ def hist(t, key):
     return {int(k): int(v) for k, v in (x.split(":") for x in m.group(1).split())} if m else None
 
 
-runs = defaultdict(list)
-for f in sorted(glob.glob(os.path.join(d, "*.txt"))):
-    t = open(f).read()
-    if "RESULT3" not in t:
-        continue
-    g = lambda k: float(re.search(rf"\b{k}= +(-?[0-9.]+(?:e[-+][0-9]+)?)", t).group(1))
-    L = float(re.search(r"Lbox=([0-9.]+)", t).group(1))
-    runs[re.sub(r"_s\d+\.txt$", "", os.path.basename(f))].append(
-        dict(N=g("N"), rho=g("N") / L, e=g("E") / g("N"), dN2=g("dN2"), W2=g("W2"), Z=g("Zfrac"),
-             hN=hist(t, "HISTN"), hW=hist(t, "HISTW")))
-
-
 def kvals(r):
     """K_G, K_th, a, nu, b from a list of seeds"""
     mean = lambda q: np.mean([x[q] for x in r])
@@ -97,17 +84,31 @@ def kvals(r):
     return KG, math.pi / (2 * math.sqrt(a * b)), a, nu, b
 
 
-rng = np.random.default_rng(1)
-print(f"{'run':24s} {'n':>2s} {'rho':>15s} {'E/N':>15s} {'dN2':>14s} {'W2':>14s} {'K_G':>12s} {'K_th':>12s}"
-      f" {'a':>6s} {'frac(nu)':>8s} {'b':>6s} {'Zfrac':>5s} src")
-m = lambda a: (np.mean(a), np.std(a, ddof=1) / math.sqrt(len(a)) if len(a) > 1 else float("nan"))
-for k in sorted(runs, key=lambda s: [float(x) if x.replace('.', '').isdigit() else x for x in re.findall(r"[0-9.]+|\D+", s)]):
-    r = runs[k]
-    v = {q: m([x[q] for x in r]) for q in ("rho", "e", "dN2", "W2", "Z")}
-    KG, Kt, a, nu, b = kvals(r)
-    bs = np.array([kvals([r[i] for i in rng.integers(0, len(r), len(r))])[:2] for _ in range(200)]) if len(r) > 2 else None
-    e = np.nanstd(bs, axis=0) if bs is not None else (float("nan"),) * 2
-    f = lambda q, p=4: f"{v[q][0]:.{p}f}({v[q][1]:.{p}f})"
-    src = "hist" if all(x["hN"] and x["hW"] for x in r) else "mom"
-    print(f"{k:24s} {len(r):2d} {f('rho'):>15s} {f('e'):>15s} {f('dN2', 3):>14s} {f('W2', 3):>14s} {KG:6.3f}({e[0]:.3f})"
-          f" {Kt:6.3f}({e[1]:.3f}) {a:6.3f} {nu - math.floor(nu):8.3f} {b:6.3f} {v['Z'][0]:5.2f} {src}")
+if __name__ == "__main__":
+    d = sys.argv[1] if len(sys.argv) > 1 else "validation/out/lutt"
+    runs = defaultdict(list)
+    for f in sorted(glob.glob(os.path.join(d, "*.txt"))):
+        t = open(f).read()
+        if "RESULT3" not in t:
+            continue
+        g = lambda k: float(re.search(rf"\b{k}= +(-?[0-9.]+(?:e[-+][0-9]+)?)", t).group(1))
+        L = float(re.search(r"Lbox=([0-9.]+)", t).group(1))
+        runs[re.sub(r"_s\d+\.txt$", "", os.path.basename(f))].append(
+            dict(N=g("N"), rho=g("N") / L, e=g("E") / g("N"), dN2=g("dN2"), W2=g("W2"), Z=g("Zfrac"),
+                 hN=hist(t, "HISTN"), hW=hist(t, "HISTW")))
+
+
+    rng = np.random.default_rng(1)
+    print(f"{'run':24s} {'n':>2s} {'rho':>15s} {'E/N':>15s} {'dN2':>14s} {'W2':>14s} {'K_G':>12s} {'K_th':>12s}"
+          f" {'a':>6s} {'frac(nu)':>8s} {'b':>6s} {'Zfrac':>5s} src")
+    m = lambda a: (np.mean(a), np.std(a, ddof=1) / math.sqrt(len(a)) if len(a) > 1 else float("nan"))
+    for k in sorted(runs, key=lambda s: [float(x) if x.replace('.', '').isdigit() else x for x in re.findall(r"[0-9.]+|\D+", s)]):
+        r = runs[k]
+        v = {q: m([x[q] for x in r]) for q in ("rho", "e", "dN2", "W2", "Z")}
+        KG, Kt, a, nu, b = kvals(r)
+        bs = np.array([kvals([r[i] for i in rng.integers(0, len(r), len(r))])[:2] for _ in range(200)]) if len(r) > 2 else None
+        e = np.nanstd(bs, axis=0) if bs is not None else (float("nan"),) * 2
+        f = lambda q, p=4: f"{v[q][0]:.{p}f}({v[q][1]:.{p}f})"
+        src = "hist" if all(x["hN"] and x["hW"] for x in r) else "mom"
+        print(f"{k:24s} {len(r):2d} {f('rho'):>15s} {f('e'):>15s} {f('dN2', 3):>14s} {f('W2', 3):>14s} {KG:6.3f}({e[0]:.3f})"
+              f" {Kt:6.3f}({e[1]:.3f}) {a:6.3f} {nu - math.floor(nu):8.3f} {b:6.3f} {v['Z'][0]:5.2f} {src}")
