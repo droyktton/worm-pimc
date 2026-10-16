@@ -72,6 +72,7 @@ Further options (CPU and GPU):
   - `0`: harmonic, with coupling `kappa`.
   - `1`: Lennard-Jones, with parameters `eps` and `sig`.
   - `2`: Aziz HFDHE2 for ⁴He, in K and Å (use `lam=6.0596`).
+  - `3` (CPU, 1D): contact interaction `g`·δ(x) (Lieb–Liniger), with the exact two-body pair-product action; `g<0` is the hard core (Tonks).
 - `rc`: pair cutoff, must be ≤ Lbox/2.
 - `N0`: start from N0 straight closed worldlines on a lattice.
 - `Vd`, `qc`, `dseed`: smooth random potential, periodic in the box.
@@ -82,6 +83,7 @@ Output (Z-sector averages, jackknife errors):
 - `N`; `Vbar` (mean potential energy); `E` (thermodynamic energy estimator).
 - `D2`: ⟨D²⟩, where D is the total winding displacement; `rhos` = ⟨D²⟩/(2λdβ⟨N⟩).
 - `dN2` = ⟨N²⟩−⟨N⟩²; `W2` = ⟨D²⟩/(d Lbox²); `K` = π√(W2·dN2), the Luttinger parameter in 1D.
+- `HISTN`, `HISTW` (CPU): histograms of N and of the winding number. `validation/lutt_combine.py` fits discrete Gaussians to them for K when W2 or dN2 is small.
 - `Zfrac` (fraction of time in the Z sector) and acceptance ratios.
 
 `C` only affects efficiency, not the results (checked for C = 0.1…0.001); aim for Zfrac ~ 0.1–0.5.
@@ -95,6 +97,9 @@ Output (Z-sector averages, jackknife errors):
 - `exact_disorder.py`: ideal Bose gas in a 1D periodic box with the disorder potential.
   - It diagonalises the one-slice transfer matrix of the same primitive discretisation, with a twist for the winding.
   - Returns N, V̄, E, ⟨D²⟩, ⟨δN²⟩, K and ⟨n_j⟩, with no Trotter error.
+- `exact_tonks.py`: hard-core bosons on a finite 1D ring (Bose–Fermi mapping), with P(N), P(W) and K; optional disorder.
+- `exact_yy.py`: Yang–Yang thermodynamics of the Lieb–Liniger gas (N, ⟨δN²⟩, E, interaction energy).
+- `exact_ll_gs.py`: Lieb–Liniger ground state, e(γ) and the Luttinger parameter K(γ).
 
 Original CPU validation (3e7 steps, C=1e-3; exact PA vs MC):
 
@@ -141,6 +146,7 @@ The scripts are `validate_gpu.sh`, `validate_pbc.sh`, `ref_lj_cpu.sh`, `lj_gpu.s
 - **Trotter scan** (`validation/trotter.sh`, trap with κ=0.3, β=2, P=4…64, d=1,2,3). The MC matches the exact PA at every P, even where the Trotter error is hundreds of σ; no deviation exceeds 2.6σ in 243 numbers. The τ² extrapolation reaches the exact continuum within 1.6σ, except N in 3D (−2.3σ). A second 3D scan agrees (N vs exact PA: p = 0.81; τ→0 within 1.6σ). Both 3D scans combined are −2.1σ in N, while the fixed-P test still passes (p = 0.30).
 - **Exchange cycles** (`validation/cycles_ideal.sh`). The full distribution ⟨n_j⟩ of the ideal gas matches the exact cycle expansion in 1D/2D/3D, including a case near condensation, in double and float: χ²/dof between 10.9/15 and 19.0/15.
 - **Disorder** (`validation/disorder.sh`). The 1D ideal gas in three disorder realisations, from ρs/ρ = 0.18 down to 3·10⁻⁶, matches `exact_disorder.py` on the CPU and on the GPU in double and float. This covers N, V̄, E, ρs, ⟨δN²⟩, K and the cycles; the GPU reproduces K to 0.2%. With `Vd=0` the output is bit-identical to the code without disorder.
+- **Contact interaction, 1D** (`validation/contact.sh`, `validation/llK.sh`, CPU). The Tonks gas matches the exact finite ring for N, ⟨δN²⟩, E, ⟨W²⟩ and K (τ→0 within 1.2σ). g=2 matches Yang–Yang (τ→0 within 1.1σ). K(γ) at γ = 1, 2.5, 8 matches the Bethe ansatz within 1–2% (largest −2.0σ, at γ=8).
 - **N ≈ 100** (`validation/lj100_*.sh`). The GPU (W=32) agrees with a 56-seed CPU reference for a dense LJ liquid and for a degenerate LJ gas with ρs/ρ ≈ 0.41 and long exchange cycles: N, V̄, E, ρs and 12 cycle bins. One early double run of the gas was 2.3–2.6σ off in ρs and the longest cycles. Two extra seeds per precision do not reproduce this, and the eight GPU runs combined are within 1.9σ of the CPU.
 
 ### Performance

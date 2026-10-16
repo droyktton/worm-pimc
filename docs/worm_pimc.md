@@ -55,6 +55,7 @@ V_{\rm dis}(x) = V_d\sqrt{\frac{2}{M}}\sum_{k=1}^{M}\cos\!\Big(\frac{2\pi k x}{L
 | 0 | harmonic coupling $v(r) = \tfrac12 \kappa r^2$ | `kappa` (no pair term if `kappa=0`) |
 | 1 | Lennard-Jones $v(r) = 4\varepsilon\left[(\sigma/r)^{12} - (\sigma/r)^6\right]$ | `eps`, `sig` |
 | 2 | Aziz HFDHE2 for ⁴He (K, Å) | built in; use `lam=6.0596` K Å² |
+| 3 | contact $`v(x) = g\,\delta(x)`$, 1D only (Lieb–Liniger), with the exact pair-product action | `g` ($g \lt 0$: hard core, $g = \infty$) |
 
 The Aziz HFDHE2 potential [5] is
 
@@ -66,7 +67,18 @@ v(r) = \epsilon\left[A\,e^{-\alpha x} - F(x)\left(\frac{C_6}{x^6} + \frac{C_8}{x
 
 with $\epsilon = 10.8$ K, $r_m = 2.9673$ Å, $A = 0.5448504\times10^6$, $\alpha = 13.353384$, $D = 1.241314$, $C_6 = 1.3732412$, $C_8 = 0.4253785$ and $C_{10} = 0.1781$.
 
-All pair potentials are **truncated** (not shifted) at the cutoff `rc`: $v(r) = 0$ for $r \gt r_c$. No tail corrections are applied.
+All pair potentials 0–2 are **truncated** (not shifted) at the cutoff `rc`: $v(r) = 0$ for $r \gt r_c$. No tail corrections are applied.
+
+**Contact interaction** (`pot=3`, CPU, `DIM=1`). A δ potential cannot be sampled with the primitive approximation. Instead, every pair of links $i, j$ on the same slice carries the exact two-body action $e^{-u}$, the ratio of the interacting to the free relative propagator. With $r$ and $r'$ the relative coordinate $x_i - x_j$ at the two ends of the link (followed continuously along the link), $D = 2\lambda$ and $\kappa = g/2D$:
+
+```math
+e^{-u(r, r';\tau)} = 1 - \kappa\sqrt{\pi D\tau}\; e^{-(\lvert r\rvert\lvert r'\rvert + r r')/2D\tau}\; \mathrm{erfcx}\!\left(\frac{\lvert r\rvert + \lvert r'\rvert + 2\kappa D\tau}{2\sqrt{D\tau}}\right).
+```
+
+- The exponential is 1 when the pair crosses during the link ($r r' \lt 0$) and $e^{-\lvert r\rvert\lvert r'\rvert/D\tau}$ otherwise.
+- Hard core ($g = \infty$, Tonks–Girardeau, `g=-1`): $e^{-u} = 1 - e^{-\lvert r r'\rvert/D\tau}$ if the pair does not cross, and 0 if it does.
+- The action is exact for two particles, so the only discretisation error is from three-body collisions within one slice. It is much smaller than the primitive $O(\tau^2)$ error (Section 9.7).
+- Energy: the potential part of the thermodynamic estimator is $\frac1\beta\sum \partial u/\partial\tau$ over all pair links. The interaction energy $\langle g\sum_{i\lt j}\delta(x_i - x_j)\rangle$ is reported as `Vbar` $= \frac{g}{\beta}\sum\partial u/\partial g$. Both derivatives are central differences.
 
 **Boundary conditions.** Two options:
 
@@ -203,6 +215,16 @@ All estimators are accumulated in the Z sector every `meas` steps.
 - Otherwise the discreteness matters, and the reported number is a finite-size estimate: invert the discrete-Gaussian forms of $\langle W^2\rangle$ and $\langle\delta N^2\rangle$ separately.
 - With disorder, $\langle W^2\rangle$ and $\langle\delta N^2\rangle$ are averaged over realisations before $K$ is formed.
 
+**Theta-function inversion ($K_{\rm th}$).** When $\langle W^2\rangle$ or $\langle\delta N^2\rangle$ is small, the zero modes are discrete Gaussians:
+
+```math
+P(N) \propto e^{-a(N-\nu)^2}, \qquad P(W) \propto e^{-bW^2}, \qquad a = \frac{\pi\beta v}{2KL}, \qquad b = \frac{\pi L}{2K\beta v}, \qquad K_{\rm th} = \frac{\pi}{2\sqrt{ab}} .
+```
+
+- The CPU code prints the Z-sector histograms of $N$ and of the winding number (lines `HISTN` and `HISTW`).
+- `validation/lutt_combine.py` fits $a$, $\nu$ and $b$ by maximum likelihood on the histograms pooled over seeds, or from the moments, and bootstraps over seeds for the error.
+- $K_{\rm th}$ is independent of $v$ and needs no wide distributions. For the Tonks gas of Section 9.7, $K_{\rm G} = \pi\sqrt{\langle W^2\rangle\langle\delta N^2\rangle}$ is 0.26 while the exact $K_{\rm th}$ is 1.0006.
+
 **Statistical errors.**
 
 - **CPU:** the production run is split into `blocks` consecutive blocks.
@@ -298,6 +320,39 @@ n_i = \frac{f\Lambda_i}{1 - f\Lambda_i},
 - $\mu$ must lie below the lowest level $e_0 = -\ln t_0/\tau$, which the script prints; `--dmu` sets $\mu = e_0 + \Delta\mu$.
 - With `--Vd 0` it reproduces `exact_ideal.py` in 1D.
 
+### 5.4 Contact interaction in 1D (`exact_tonks.py`, `exact_yy.py`, `exact_ll_gs.py`)
+
+These references are for the continuum, so the Monte Carlo is compared after $\tau \to 0$ (or at small $\tau$).
+
+**Hard-core bosons on a finite ring (`exact_tonks.py`).** By the Bose–Fermi mapping, $N$ hard-core bosons with twist $\phi$ have the spectrum of $N$ free fermions with twist $\phi$ ($N$ odd) or $\phi + \pi$ ($N$ even):
+
+```math
+Z_N(\phi) = e_N\big(x_1(\phi_N), x_2(\phi_N), \dots\big), \qquad x_n = e^{-\beta\varepsilon_n}, \qquad \phi_N = \phi + \pi\,[N\ \mathrm{even}] .
+```
+
+- $e_N$ is the elementary symmetric polynomial, computed by a scaled recursion.
+- The winding distribution is the Fourier transform of the flux dependence, $`P(W) = \frac{1}{2\pi}\int d\phi\, e^{-iW\phi}\,\Xi(\phi)/\Xi(0)`$.
+- It prints $P(N)$, $\langle N\rangle$, $\langle\delta N^2\rangle$, $E$, $P(W)$, $\langle W^2\rangle$ and $K_{\rm th}$, for the same finite $L$ as the simulation.
+- With `Vd`, `qc`, `dseed` the single-particle levels are those of the disorder potential of Section 1 (same realisation).
+
+**Yang–Yang thermodynamics (`exact_yy.py`).** For finite $g$ and temperature $T$, in the thermodynamic limit, with $c = g/2\lambda$:
+
+```math
+\varepsilon(k) = \lambda k^2 - \mu - \frac{T}{2\pi}\int dq\, \frac{2c}{c^2 + (k-q)^2}\,\ln\!\big(1 + e^{-\varepsilon(q)/T}\big),
+\qquad
+p = \frac{T}{2\pi}\int dk\, \ln\!\big(1 + e^{-\varepsilon(k)/T}\big).
+```
+
+$n = \partial_\mu p$, $`\langle\delta N^2\rangle/L = T\,\partial_\mu n`$, $E/L = \mu n - p + T\partial_T p$ and the interaction energy $`-g\,\partial_g p`$ follow by central differences. On a ring the corrections are exponentially small in $L$ over the thermal length.
+
+**Ground state (`exact_ll_gs.py`).** The Lieb equation gives $e(\gamma)$, with $E/N = \lambda n^2 e(\gamma)$ and $\gamma = g/2\lambda n$, and from it the Luttinger parameter
+
+```math
+K(\gamma) = \frac{\pi}{\sqrt{3e - 2\gamma e' + \tfrac12\gamma^2 e''}} .
+```
+
+For example $K(1) = 3.426$, $K(2.5) = 2.296$, $K(8) = 1.495$, and $K \to 1$ as $\gamma \to \infty$.
+
 ---
 
 ## 6. GPU implementation
@@ -365,6 +420,7 @@ Every parameter is given on the command line as `key=value`. Defaults are in bra
 | `pbc` [0] | periodic box | ✓ | ✓ |
 | `omega` [1] | trap frequency (0 = no trap) | ✓ | ✓ |
 | `pot` [0], `kappa` [0], `eps` [1], `sig` [1] | pair potential (Section 1) | ✓ | ✓ |
+| `g` [0] | contact strength for `pot=3` (1D; $g \lt 0$: hard core) | ✓ | |
 | `rc` [∞, or $L/2$ with pbc] | pair cutoff | ✓ | ✓ |
 | `N0` [0] | start from `N0` straight closed worldlines on a simple lattice | ✓ | ✓ |
 | `Vd` [0], `qc` [2], `dseed` [1] | disorder: strength, maximum wavevector, realisation (Section 1); at most `DMAX` = 512 modes on the GPU | ✓ | ✓ |
@@ -393,6 +449,8 @@ RESULT3 dN2= ... +- ...   W2= ... +- ...   K= ... +- ...
 DISORDER Vd=... qc=... dseed=... modes=...          (only with Vd != 0)
 CYCLES n1= ... +- ... n2= ... +- ... ... n11= ... +- ... n12+= ... +- ...
 acceptance: open=... close=... insert=... remove=... advH=... recH=... advT=... recT=... swap=... stage=...
+HISTN <N>:<count> ...                                (CPU; Z-sector histogram of N)
+HISTW <W>:<count> ...                                (CPU, pbc; histogram of the x winding number)
 ```
 
 `rate` counts all steps, including thermalisation. `prod_rate` counts production only, summed over all replicas on the GPU.
@@ -664,7 +722,58 @@ This test checks the disorder potential and the new estimators $\langle\delta N^
 
 The full table is printed by `python3 validation/analyze.py disorder`.
 
-### 9.7 Internal consistency
+### 9.7 Contact interaction, 1D (`validation/contact.sh`, `validation/llK.sh`)
+
+This test checks `pot=3` and the theta-function $K_{\rm th}$ against the continuum results of Section 5.4. All runs are single CPU chains with $\lambda = 1/2$, combined over seeds; the errors are standard errors over seeds (bootstrap over seeds for $K_{\rm th}$).
+
+**Tonks gas on a finite ring** ($g = \infty$, $L = 10$, β = 2, μ = 1; 8 seeds × $4\times10^7$ steps per $P$), against `exact_tonks.py` for the same ring:
+
+| P | τ | N | ⟨δN²⟩ | E | ⟨W²⟩ | $K_{\rm th}$ |
+|---|---|---|---|---|---|---|
+| exact | 0 | 4.1380 | 1.1859 | 1.9830 | 0.005753 | 1.0006 |
+| 10 | 0.2 | 4.1374(29) | 1.1909(31) | 1.9784(43) | 0.005546(50) | 0.9996(16) |
+| 20 | 0.1 | 4.1352(27) | 1.1895(23) | 1.9833(33) | 0.005752(84) | 1.0021(12) |
+| 40 | 0.05 | 4.1390(34) | 1.1869(38) | 1.9843(55) | 0.005767(95) | 1.0012(19) |
+| 80 | 0.025 | 4.1401(20) | 1.1834(30) | 1.9882(49) | 0.00584(12) | 1.0009(24) |
+| τ→0 | | 4.1389(16) | 1.1861(20) | 1.9861(30) | 0.005812(65) | 1.0020(12) |
+
+- The τ → 0 values ($a + b\tau^2$ fit, χ²/dof ≤ 1.8/2) agree with the exact ring within 1.2σ.
+- Even at τ = 0.2 only ⟨W²⟩ is off (−4.1σ, 4%). The pair action is exact for two particles, so the Trotter error is small.
+- ⟨W²⟩ is 0.006, so $K_{\rm G} = \pi\sqrt{\langle W^2\rangle\langle\delta N^2\rangle}$ would be 0.26. Only the theta-function inversion recovers $K = 1$.
+
+**Finite coupling against Yang–Yang** ($g = 2$, $L = 20$, β = 1, μ = 1, so $n \approx 0.79$, γ ≈ 2.5):
+
+| P | τ | seeds | N | ⟨δN²⟩ | E | V̄ |
+|---|---|---|---|---|---|---|
+| exact | 0 | | 15.767 | 10.943 | 12.231 | 5.871 |
+| 10 | 0.1 | 8 | 15.768(18) | 10.946(53) | 12.190(23) | 5.858(17) |
+| 20 | 0.05 | 8 | 15.782(24) | 11.069(58) | 12.271(38) | 5.883(17) |
+| 40 | 0.025 | 16 | 15.774(13) | 10.925(43) | 12.246(27) | 5.875(10) |
+| 80 | 0.0125 | 16 | 15.747(11) | 10.947(42) | 12.229(28) | 5.8523(87) |
+| τ→0 | | | 15.760(9) | 10.959(29) | 12.247(19) | 5.8635(67) |
+
+- The τ → 0 values agree with Yang–Yang within 1.1σ. Of the 16 numbers at fixed $P$, the largest deviations are +2.2σ (⟨δN²⟩ at P=20) and −2.1σ (V̄ at P=80).
+- No Trotter dependence is visible at this precision, down to τ = 0.1.
+
+**Luttinger parameter against the Bethe ansatz** (`llK.sh`; $n = 1$, $L = 20$, μ from the ground-state equation of state, β chosen so that $\beta v/L \approx 1$; 8 seeds per τ, $5\times10^4 P$ steps each):
+
+| γ | τ | n | E/N | E/N, ground state | $K_{\rm G}$ | $K_{\rm th}$ | K(γ) exact | dev. |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 0.05 | 1.0009(2) | 0.3202(8) | 0.3199 | 3.417(28) | 3.418(26) | 3.427 | −0.3σ |
+| 1 | 0.025 | 1.0003(4) | 0.3201(5) | 0.3197 | 3.435(15) | 3.435(14) | 3.426 | +0.7σ |
+| 2.5 | 0.05 | 1.0012(4) | 0.6050(6) | 0.6068 | 2.318(23) | 2.320(21) | 2.297 | +1.1σ |
+| 2.5 | 0.025 | 1.0013(4) | 0.6069(20) | 0.6069 | 2.278(20) | 2.279(20) | 2.297 | −0.9σ |
+| 8 | 0.05 | 0.9992(7) | 1.0690(30) | 1.0718 | 1.447(29) | 1.455(25) | 1.495 | −1.6σ |
+| 8 | 0.025 | 1.0002(7) | 1.0719(30) | 1.0736 | 1.458(16) | 1.466(15) | 1.495 | −2.0σ |
+
+- γ in the table is the input value. The exact columns use γ = g/n with the measured n.
+- **K.** At γ = 1 and 2.5 it agrees with the Bethe ansatz to 1%. At γ = 8 it is 2% low (−2.0σ at τ = 0.025). This may be a finite-size or temperature correction to the zero-mode form, which is not included.
+- **E/N.** It agrees with the ground state within 0.3%, even though $T \gt 0$ here.
+- **Two estimators.** Here ⟨W²⟩ and ⟨δN²⟩ are of order 1, so $K_{\rm G}$ and $K_{\rm th}$ coincide.
+
+The tables are printed by `python3 validation/contact_combine.py` and `python3 validation/llK_combine.py`. Copies are in `validation/out/contact_combine.txt` and `validation/out/llK_combine.txt`.
+
+### 9.8 Internal consistency
 
 `test_warp.sh` checks the GPU code itself:
 
@@ -672,7 +781,7 @@ The full table is printed by `python3 validation/analyze.py disorder`.
 - The list-consistency checks (`debug=1`) pass.
 - `compute-sanitizer` reports 0 errors in both modes.
 
-### 9.8 Reproducing the validation
+### 9.9 Reproducing the validation
 
 The scripts in `validation/` write their raw output to `validation/out/`. Run them from the repository root:
 
@@ -684,6 +793,10 @@ sbatch -p cpu -N1 --exclusive validation/lj100_cpu.sh A           # B: add --exp
 sbatch -p gpu --gres=gpu:1 validation/lj100_gpu.sh A double       # A|B, double|float
 python3 validation/analyze.py      # summary tables (markdown); trotter | cycles | disorder | lj100
 python3 validation/figures.py      # docs/figures/val_*.png
+# contact interaction (CPU, one chain per array task = seed)
+for P in 10 20 40 80; do sbatch -p cpu -c1 --array=1-8 validation/contact.sh tonks $P; done   # also g2
+for g in 1 2.5 8; do for t in 0.05 0.025; do sbatch -p cpu -c1 --array=1-8 validation/llK.sh $g $t; done; done
+python3 validation/contact_combine.py; python3 validation/llK_combine.py
 ```
 
 - **Extra runs.** `TAG` (a suffix of the output file) and `SEEDOFF` (a seed offset) add independent runs. `analyze.py` combines the extra GPU runs of `lj100_gpu.sh` with the others, and reports an extra Trotter scan as a separate table.
@@ -741,7 +854,7 @@ Throughput saturates at about 32k replicas.
 
 ## 11. Limitations and outlook
 
-- **Discretisation:** the primitive approximation has an $O(\tau^2)$ error. Higher-order actions (pair-product, Chin, Takahashi–Imada) would allow much larger $\tau$ for strongly repulsive cores such as ⁴He.
+- **Discretisation:** the primitive approximation has an $O(\tau^2)$ error. Only the 1D contact interaction has a pair-product action (exact, Section 1). For strongly repulsive cores such as ⁴He, the primitive action needs very small τ. In 1D ⁴He at ρ = 0.18 Å⁻¹ and T = 0.1 K, E/N still moves by 0.15 K between τ = 1/80 and 1/160 K⁻¹, while K changes by only 0.03. A numerical pair action for the Aziz potential (Ceperley [3]) would fix this.
 - **Potentials:** they are truncated without tail corrections. The Aziz potential is implemented but has not yet been validated against published ⁴He results.
 - **Large $N$:** the cost of a move grows as $O(N)$ (all beads of a slice). Cell lists per slice would make it $O(1)$ for short-range potentials; this is the next step for $N \gtrsim 500$.
 - **Thermalisation:** with many replicas, thermalisation is paid once per replica. Long production runs with few replicas amortise it.
