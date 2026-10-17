@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validation figures for docs/worm_pimc.md (Section 9) from validation/out/.
 usage (from the repository root, on a compute node): python3 validation/figures.py
-output: docs/figures/val_trotter.png, val_cycles.png, val_lj100.png"""
+output: docs/figures/val_trotter.png, val_cycles.png, val_lj100.png, val_sq.png"""
 import math, os, sys
 sys.path.insert(0, "."); sys.path.insert(0, "validation")
 import matplotlib
@@ -124,7 +124,40 @@ def lj100():
     fig.savefig(f"{FIG}/val_lj100.png", dpi=150)
 
 
+def sq():
+    """S(q) of the 1D contact gas at n = 1 (validation/sq_combine.py writes validation/out/sq/<case>.dat)"""
+    import numpy as np
+    fig, ax = plt.subplots(1, 2, figsize=(11, 4.4))
+    qq = np.linspace(1e-3, 2.0, 300)
+    for case, b, col in (("t40b1", 1, S2), ("t40b3", 3, S3), ("t40b10", 10, S1)):
+        path = f"validation/out/sq/{case}.dat"
+        if not os.path.exists(path):
+            continue
+        q, S, e, ex, SL = np.loadtxt(path, unpack=True)
+        k = q < 2.05
+        ax[0].plot(q[k], ex[k], color=col, lw=1.2)
+        ax[0].errorbar(q[k], S[k], e[k], fmt="o", color=col, label=rf"$\beta={b}$", **DOT)
+        v = math.pi
+        ax[0].plot(qq, qq / (2 * math.pi) / np.tanh(b * v * qq / 2), color=col, lw=1, ls=":")
+    ax[0].plot(qq, qq / (2 * math.pi), color=INK2, lw=1, ls="--", label=r"$T=0$: $q/2\pi n$")
+    ax[0].set_title(r"Tonks gas, $L=40$ (lines: exact; dotted: harmonic Luttinger)", loc="left", fontsize=10)
+    for case, g, col in (("ll2.5", 2.5, S2), ("ll8", 8, S1), ("t40b10", None, S3)):
+        path = f"validation/out/sq/{case}.dat"
+        if not os.path.exists(path):
+            continue
+        q, S, e, ex, SL = np.loadtxt(path, unpack=True)
+        k = q < 2.05
+        ax[1].errorbar(q[k], S[k], e[k], fmt="o", color=col, label=r"$\gamma=\infty$" if g is None else rf"$\gamma={g:g}$", **DOT)
+        ax[1].plot(q[k], SL[k], color=col, lw=1, ls=":")
+    ax[1].set_title(r"Lieb-Liniger, $n=1$, $\beta=10$ (dotted: harmonic Luttinger, Bethe-ansatz $K$)",
+                    loc="left", fontsize=10)
+    for a in ax:
+        a.set_xlabel(r"$q$"); a.set_ylabel(r"$S(q)$"); a.set_xlim(0, 2.0); a.set_ylim(0, None); a.legend(loc="upper left")
+    fig.tight_layout()
+    fig.savefig(f"{FIG}/val_sq.png", dpi=150)
+
+
 if __name__ == "__main__":
     os.makedirs(FIG, exist_ok=True)
-    for w in sys.argv[1:] or ["trotter", "cycles", "lj100"]:
+    for w in sys.argv[1:] or ["trotter", "cycles", "lj100", "sq"]:
         globals()[w]()

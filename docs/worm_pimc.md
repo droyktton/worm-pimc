@@ -790,7 +790,26 @@ This test checks `pot=3` and the theta-function $K_{\rm th}$ against the continu
 - **E/N.** It agrees with the ground state within 0.3%, even though $T \gt 0$ here.
 - **Two estimators.** Here ⟨W²⟩ and ⟨δN²⟩ are of order 1, so $K_{\rm G}$ and $K_{\rm th}$ coincide.
 
-The tables are printed by `python3 validation/contact_combine.py` and `python3 validation/llK_combine.py`. Copies are in `validation/out/contact_combine.txt` and `validation/out/llK_combine.txt`.
+**Static structure factor and hyperuniformity** (`validation/sq.sh`, `nsq`). At $T = 0$ a Luttinger liquid is hyperuniform: $S(q) \to 0$ linearly, and the number variance in an interval of length $\ell$ grows only as $(K/\pi^2)\ln\ell$. At $T \gt 0$ the harmonic (phonon) theory gives
+
+```math
+S(q) \simeq \frac{K q}{2\pi n}\,\coth\frac{\beta v q}{2},
+\qquad v = \frac{2\lambda\pi n}{K},
+\qquad S(0) = \frac{K}{\pi\beta v n} \gt 0 ,
+```
+
+so hyperuniformity holds only for $q \gg T/v$.
+
+- **Against the exact S(q).** For the Tonks gas, `exact_tonks.py nsq=M` gives the exact S(q) on the finite ring, with or without disorder:
+  - $L = 10$, β = 2, P = 40, 16 seeds: χ² = 13.2/12 over $q = 2\pi m/L$, $m = 1..12$.
+  - The same ring with $V_d = 1$, P = 80: χ² = 9.5/12 for the connected $S_c$.
+  - $L = 40$, $n \approx 1$, β = 1, 3, 10 (τ = 0.05), 8 seeds, 32 wavevectors each: χ² = 44.8, 47.3 and 27.5. With 8 seeds the error bars come from 7 degrees of freedom, so $E[\chi^2] \approx 1.4 \times 32 = 45$. The largest of the 96 deviations is +3.9σ.
+- **Thermal crossover** (figure, left). At β = 10, $S(q_{\min} = 2\pi/40) = 0.0254(3)$, on the $T = 0$ line $q/2\pi n$. At β = 1 the curve flattens to $S(0) \approx 0.1$.
+- **Lieb–Liniger** ($n = 1$, $L = 40$, β = 10, τ = 0.025, 8 seeds; figure, right). The slope at small $q$ is set by the Bethe-ansatz $K(\gamma)$, with no free parameter. For the three smallest $q$ the deviations from the harmonic form are within 1σ at γ = 2.5 ($K = 2.29$) and within 0.7σ at γ = 8 ($K = 1.49$). At larger $q$ the data fall below it: the dispersion bends upward (Bogoliubov-like, more so at weaker coupling), and $S(q) \approx \lambda q^2/\omega(q)$ then grows more slowly than linearly.
+
+![S(q) of the Tonks and Lieb-Liniger gases](figures/val_sq.png)
+
+The tables are printed by `python3 validation/contact_combine.py`, `python3 validation/llK_combine.py` and `python3 validation/sq_combine.py` (copy in `validation/out/sq_combine.txt`). Copies are in `validation/out/contact_combine.txt` and `validation/out/llK_combine.txt`.
 
 ### 9.8 Internal consistency
 
@@ -816,6 +835,9 @@ python3 validation/figures.py      # docs/figures/val_*.png
 for P in 10 20 40 80; do sbatch -p cpu -c1 --array=1-8 validation/contact.sh tonks $P; done   # also g2; tonksd0.5|1|2 with --array=1-16
 for g in 1 2.5 8; do for t in 0.05 0.025; do sbatch -p cpu -c1 --array=1-8 validation/llK.sh $g $t; done; done
 python3 validation/contact_combine.py; python3 validation/llK_combine.py
+for c in t10 t10d1; do sbatch -p cpu -c1 --array=1-16 validation/sq.sh $c; done
+for c in t40b1 t40b3 t40b10 ll2.5 ll8; do sbatch -p cpu -c1 --array=1-8 validation/sq.sh $c; done   # 1-3 h each
+python3 validation/sq_combine.py; python3 validation/figures.py sq
 ```
 
 - **Extra runs.** `TAG` (a suffix of the output file) and `SEEDOFF` (a seed offset) add independent runs. `analyze.py` combines the extra GPU runs of `lj100_gpu.sh` with the others, and reports an extra Trotter scan as a separate table.
