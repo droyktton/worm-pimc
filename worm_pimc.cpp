@@ -32,6 +32,9 @@
 // exchange cycles n_j = number of particles in permutation cycles of length j
 // (j = 1..NCYC-1, last bin j >= NCYC; sum_j n_j = N), <N^2> and the Luttinger
 // parameter K = pi sqrt(<W^2> <dN^2>) (W = D/Lbox per axis; meaningful in 1D, pbc).
+// With nsq > 0 (pbc): rho_q = sum_i exp(i q x_i) on each slice for q = 2 pi m/Lbox along x, m = 1..nsq;
+// <|rho_q|^2> and <rho_q> averaged over slices give S(q) = <|rho_q|^2>/<N> and the connected
+// S_c(q) = (<|rho_q|^2> - |<rho_q>|^2)/<N> (they differ only with disorder).
 //
 // Build:  g++ -O2 -std=c++17 -DDIM=1 worm_pimc.cpp -o worm_pimc_1d
 //
@@ -46,12 +49,16 @@
 #include <string>
 #include <algorithm>
 #include <chrono>
+#include <complex>
 
 #ifndef DIM
 #define DIM 1
 #endif
 #ifndef NCYC
 #define NCYC 12            // cycle-length bins (last one: j >= NCYC)
+#endif
+#ifndef NSQ
+#define NSQ 32             // maximum number of wavevectors of the static structure factor (parameter nsq)
 #endif
 
 typedef std::array<double, DIM> Vec;
@@ -71,6 +78,7 @@ struct Sim {
     int pbc = 0, pot = 0;              // periodic box; pair potential type
     double eps = 1.0, sig = 1.0, rc = 1e300, rc2 = 1e300;
     double gc = 0.0;                   // contact strength (pot=3); gc < 0: hard core (g = infinity)
+    int nsq = 0;                       // structure-factor wavevectors (0 = off)
     int ndis = 0;                      // disorder modes; dc = (Re, Im) of c_k, k = 1..ndis
     std::vector<double> dc;
 
@@ -505,7 +513,8 @@ struct Sim {
     }
 
     // ---- observables (Z sector)
-    enum { O_N, O_V, O_E, O_D2, O_C, O_N2 = O_C + NCYC, O_W1, NOBS };
+    enum { O_N, O_V, O_E, O_D2, O_C, O_N2 = O_C + NCYC, O_W1, O_S2, O_SR = O_S2 + NSQ, O_SI = O_SR + NSQ,
+           NOBS = O_SI + NSQ };
     void measure(double* o) const {
         double Nb = (double)act.size();
         double e = 0, evx = 0;
@@ -555,6 +564,22 @@ struct Sim {
         o[O_D2] = D2;
         o[O_N2] = o[O_N] * o[O_N];
         o[O_W1] = D[0] / Lbox;      // winding number along x (integer with pbc)
+        // static structure factor: rho_q(s) = sum_{b in s} z_b^m, z_b = exp(2 pi i x_b / Lbox)
+        for (int m = 0; m < NSQ; m++) o[O_S2 + m] = o[O_SR + m] = o[O_SI + m] = 0;
+        if (nsq > 0) {
+            std::complex<double> rq[NSQ];
+            for (int s = 0; s < P; s++) {
+                for (int m = 0; m < nsq; m++) rq[m] = 0;
+                for (int id : sl[s]) {
+                    double ph = 2.0 * M_PI * B[id].r[0] / Lbox;
+                    std::complex<double> z(std::cos(ph), std::sin(ph)), w = z;
+                    for (int m = 0; m < nsq; m++) { rq[m] += w; w *= z; }
+                }
+                for (int m = 0; m < nsq; m++) {
+                    o[O_S2 + m] += std::norm(rq[m]) / P; o[O_SR + m] += rq[m].real() / P; o[O_SI + m] += rq[m].imag() / P;
+                }
+            }
+        }
     }
 
     void step() {
@@ -630,6 +655,8 @@ int main(int argc, char** argv) {
     if (S.pot == 3 && DIM != 1) { fprintf(stderr, "pot=3 (contact) needs DIM=1\n"); return 1; }
     double Vd = getd(argc, argv, "Vd", 0.0), qc = getd(argc, argv, "qc", 2.0);
     unsigned long long dseed = (unsigned long long)getd(argc, argv, "dseed", 1);
+    S.nsq = (int)getd(argc, argv, "nsq", 0);
+    if (S.nsq > NSQ || (S.nsq > 0 && !S.pbc)) { fprintf(stderr, "need nsq <= NSQ = %d and pbc=1\n", NSQ); return 1; }
     if (Vd != 0.0) {
         S.ndis = (int)std::floor(qc * S.Lbox / (2.0 * M_PI));
         if (S.ndis < 1) { fprintf(stderr, "need qc >= 2 pi / Lbox\n"); return 1; }
@@ -688,13 +715,18 @@ int main(int argc, char** argv) {
     double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     // jackknife over blocks; derived: rho_s/rho = <D2>/(2 lam d beta <N>), <dN^2>,
     // <W^2> = <D2>/(d Lbox^2), K = pi sqrt(<W^2> <dN^2>)
-    enum { Q_RS = NO, Q_DN2, Q_W2, Q_K, NQ };
+    enum { Q_RS = NO, Q_DN2, Q_W2, Q_K, Q_S = Q_K + 1, Q_SC = Q_S + NSQ, NQ = Q_SC + NSQ };
     auto derive = [&](const double* m, double* q) {
         for (int k = 0; k < NO; k++) q[k] = m[k];
         q[Q_RS] = m[Sim::O_N] > 0 ? m[Sim::O_D2] / (2.0 * S.lam * DIM * S.beta * m[Sim::O_N]) : 0.0;
         q[Q_DN2] = m[Sim::O_N2] - m[Sim::O_N] * m[Sim::O_N];
         q[Q_W2] = m[Sim::O_D2] / (DIM * S.Lbox * S.Lbox);
         q[Q_K] = M_PI * std::sqrt(std::max(0.0, q[Q_W2] * q[Q_DN2]));
+        for (int k = 0; k < NSQ; k++) {
+            double n = m[Sim::O_N] > 0 ? m[Sim::O_N] : 1.0;
+            q[Q_S + k] = m[Sim::O_S2 + k] / n;
+            q[Q_SC + k] = (m[Sim::O_S2 + k] - m[Sim::O_SR + k] * m[Sim::O_SR + k] - m[Sim::O_SI + k] * m[Sim::O_SI + k]) / n;
+        }
     };
     double tot[NO] = {0}; long totn = 0; int nb = 0;
     for (int b = 0; b < nblocks; b++) if (bn[b] > 0) { nb++; totn += bn[b]; for (int k = 0; k < NO; k++) tot[k] += bs[b][k]; }
@@ -723,6 +755,9 @@ int main(int argc, char** argv) {
     for (int k = 0; k < NCYC; k++)
         printf(" n%d%s= %.7f +- %.7f", k + 1, k == NCYC - 1 ? "+" : "", mean[Sim::O_C + k], err[Sim::O_C + k]);
     printf("\n");
+    for (int k = 0; k < S.nsq; k++)
+        printf("SQ m= %d q= %.6f S= %.6f +- %.6f Sc= %.6f +- %.6f rho2= %.6f +- %.6f\n", k + 1, 2 * M_PI * (k + 1) / S.Lbox,
+               mean[Q_S + k], err[Q_S + k], mean[Q_SC + k], err[Q_SC + k], mean[Sim::O_S2 + k], err[Sim::O_S2 + k]);
     // histograms for the discrete-Gaussian (theta-function) form of the Luttinger zero modes
     printf("HISTN"); for (auto& h : histN) printf(" %ld:%ld", h.first, h.second); printf("\n");
     if (S.pbc) { printf("HISTW"); for (auto& h : histW) printf(" %ld:%ld", h.first, h.second); printf("\n"); }

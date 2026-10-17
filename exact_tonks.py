@@ -8,8 +8,14 @@ N hard-core bosons with twist phi map to free fermions with twist phi (N odd) or
     Z(phi) = sum_W Z_W exp(i W phi)  =>  P(W) = (1/2pi) int dphi exp(-i W phi) Z(phi) / Z(0).
 Single-particle levels: H = -lam d^2/dx^2 + V(x) in the plane-wave basis k = (2 pi n + phi)/L.
 Prints P(N), <N>, <dN^2>, E, P(W), <W^2> and K_th (theta-function form, as validation/lutt_combine.py).
+With nsq=M also <|rho_q|^2> and <rho_q> (rho_q = sum_i exp(i q x_i), q = 2 pi m/L, m = 1..M): density
+correlations of hard-core bosons equal those of the mapped fermions, so in each boundary-condition sector
+    sum_N z^N Z_N <O>_N = Xi(z) <O>_GC(z),   Xi(z) = prod_a (1 + z x_a)
+with Wick's theorem at complex fugacity, f_a = z x_a/(1 + z x_a), M_ab = <a|e^{iqx}|b>:
+    <rho_q> = sum_a f_a M_aa,   <|rho_q|^2> = sum_a f_a M_aa * sum_a f_a conj(M_aa) + sum_ab |M_ab|^2 f_a (1 - f_b),
+and the N-parity projection is (F(r) +- F(-r))/2 with r = exp(beta mu).
 
-usage: python3 exact_tonks.py L beta mu [lam=0.5] [Vd=0 qc=2 dseed=1] [nmax=200]"""
+usage: python3 exact_tonks.py L beta mu [lam=0.5] [Vd=0 qc=2 dseed=1] [nmax=200] [nsq=0]"""
 import math, sys
 import numpy as np
 
@@ -28,16 +34,50 @@ def disorder(M, Vd, seed):
     return c
 
 
-def levels(L, lam, phi, c, nmax):
+def levels(L, lam, phi, c, nmax, vecs=False):
     n = np.arange(-nmax, nmax + 1)
     k = (2 * np.pi * n + phi) / L
-    if not c:
+    if not c and not vecs:
         return np.sort(lam * k * k)
     H = np.diag(lam * k * k).astype(complex)
     # V(x) = Re sum_k c_k e^{2 pi i k x/L} = sum_k (c_k e^{iqx} + conj(c_k) e^{-iqx}) / 2 couples n -> n +- k
     for j, ck in enumerate(c, start=1):
         H += np.diag(np.full(2 * nmax + 1 - j, ck / 2), -j) + np.diag(np.full(2 * nmax + 1 - j, np.conj(ck) / 2), j)
-    return np.linalg.eigvalsh(H)
+    return np.linalg.eigh(H) if vecs else np.linalg.eigvalsh(H)
+
+
+def structure(L, beta, lam, mu, c, nmax, nsq):
+    """<N>, <|rho_q|^2>, <rho_q> (m = 1..nsq) of hard-core bosons, grand canonical, by the parity projection"""
+    r = math.exp(beta * mu)
+    num = {"N": 0.0, "r2": np.zeros(nsq), "r1": np.zeros(nsq, complex)}; den = 0.0
+    secs = []
+    for par, ph in ((1, 0.0), (0, math.pi)):          # odd N: periodic fermions, even N: antiperiodic
+        e, U = levels(L, lam, ph, c, nmax, vecs=True)
+        x = np.exp(-beta * (e - mu))                   # r x_a with r = e^{beta mu} absorbed
+        Mq = [U.conj().T @ shift(U, m) for m in range(1, nsq + 1)]
+        secs.append((par, x, Mq))
+    # log Xi(r) of each sector, to weight the two sectors on a common scale
+    lx = [np.log1p(x).sum() for _, x, _ in secs]; l0 = max(lx)
+    for (par, x, Mq), lp in zip(secs, lx):
+        sgn = 1 if par == 0 else -1                    # even: (F(r) + F(-r))/2, odd: (F(r) - F(-r))/2
+        rat = np.prod((1 - x) / (1 + x))               # Xi(-r) / Xi(r)
+        w = math.exp(lp - l0)
+        for z, fac in ((1.0, 0.5 * w), (-1.0, 0.5 * w * sgn * rat)):
+            f = z * x / (1 + z * x)
+            den += fac
+            num["N"] += fac * f.sum()
+            for i, M in enumerate(Mq):
+                d = np.diag(M); t1 = (f * d).sum()
+                num["r1"][i] += fac * t1
+                num["r2"][i] += fac * (t1 * (f * d.conj()).sum()
+                                       + np.einsum("ab,a,b->", np.abs(M) ** 2, f, 1 - f)).real
+    return num["N"] / den, num["r2"] / den, num["r1"] / den
+
+
+def shift(U, m):
+    """e^{i q_m x} acting on plane-wave coefficients: component n -> n + m"""
+    V = np.zeros_like(U); V[m:] = U[:-m]
+    return V
 
 
 def esym(x, Nmax):
@@ -92,6 +132,12 @@ def main(a):
     import lutt_combine as lc
     a_, nu = lc.ml_a({int(n): q * 1e9 for n, q in zip(Ns, p) if q > 1e-12})
     b_ = lc.ml_b({int(x): max(q, 0) * 1e9 for x, q in zip(Wv, PW) if q > 1e-12})
+    nsq = int(kw.get("nsq", 0))
+    if nsq:
+        Nq, r2, r1 = structure(L, beta, lam, mu, c, nmax, nsq)
+        print(f"structure factor (check: N= {Nq:.7f}); S = <|rho_q|^2>/<N>, Sc = (<|rho_q|^2> - |<rho_q>|^2)/<N>")
+        for m in range(nsq):
+            print(f"SQ m= {m + 1} q= {2 * math.pi * (m + 1) / L:.6f} S= {r2[m] / N:.7f} Sc= {(r2[m] - abs(r1[m]) ** 2) / N:.7f} rho2= {r2[m]:.7f}")
     print(f"K_G= {math.pi * math.sqrt(W2 * dN2):.6f}  K_th= {math.pi / (2 * math.sqrt(a_ * b_)):.6f}  (a={a_:.4f} nu={nu:.4f} b={b_:.4f})")
 
 

@@ -201,6 +201,7 @@ All estimators are accumulated in the Z sector every `meas` steps.
 | Number fluctuations | $`\langle\delta N^2\rangle = \langle N^2\rangle - \langle N\rangle^2`$ |
 | Winding number | $`\langle W^2\rangle = \langle D^2\rangle/(d L^2)`$ (per axis) |
 | Luttinger parameter (1D) | $`K = \pi\sqrt{\langle W^2\rangle\,\langle\delta N^2\rangle}`$ |
+| Static structure factor (CPU, `nsq`) | $`S(q) = \langle\lvert\rho_q\rvert^2\rangle/\langle N\rangle`$, $`\rho_q = \sum_{b\in k} e^{iqx_b}`$ averaged over slices $k$, $q = 2\pi m/L$ along $x$; connected $`S_c(q) = (\langle\lvert\rho_q\rvert^2\rangle - \lvert\langle\rho_q\rangle\rvert^2)/\langle N\rangle`$ |
 
 **Energy.** The thermodynamic estimator is $-\partial_\beta$ of $\ln W$ at fixed $P$ and fugacity. In the Z sector the number of links equals $N_b$, so its average equals the internal energy of the discretised system *exactly* (no Trotter error relative to the PA reference).
 
@@ -421,6 +422,7 @@ Every parameter is given on the command line as `key=value`. Defaults are in bra
 | `omega` [1] | trap frequency (0 = no trap) | ✓ | ✓ |
 | `pot` [0], `kappa` [0], `eps` [1], `sig` [1] | pair potential (Section 1) | ✓ | ✓ |
 | `g` [0] | contact strength for `pot=3` (1D; $g \lt 0$: hard core) | ✓ | |
+| `nsq` [0] | number of wavevectors $q = 2\pi m/L$, $m = 1..$`nsq`, of the structure factor (needs `pbc=1`, at most `NSQ` = 32) | ✓ | |
 | `rc` [∞, or $L/2$ with pbc] | pair cutoff | ✓ | ✓ |
 | `N0` [0] | start from `N0` straight closed worldlines on a simple lattice | ✓ | ✓ |
 | `Vd` [0], `qc` [2], `dseed` [1] | disorder: strength, maximum wavevector, realisation (Section 1); at most `DMAX` = 512 modes on the GPU | ✓ | ✓ |
@@ -449,6 +451,7 @@ RESULT3 dN2= ... +- ...   W2= ... +- ...   K= ... +- ...
 DISORDER Vd=... qc=... dseed=... modes=...          (only with Vd != 0)
 CYCLES n1= ... +- ... n2= ... +- ... ... n11= ... +- ... n12+= ... +- ...
 acceptance: open=... close=... insert=... remove=... advH=... recH=... advT=... recT=... swap=... stage=...
+SQ m= <m> q= <q> S= ... +- ... Sc= ... +- ... rho2= ... +- ...   (CPU, nsq > 0; one line per q)
 HISTN <N>:<count> ...                                (CPU; Z-sector histogram of N)
 HISTW <W>:<count> ...                                (CPU, pbc; histogram of the x winding number)
 ```
