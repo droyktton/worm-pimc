@@ -741,6 +741,22 @@ This test checks `pot=3` and the theta-function $K_{\rm th}$ against the continu
 - Even at τ = 0.2 only ⟨W²⟩ is off (−4.1σ, 4%). The pair action is exact for two particles, so the Trotter error is small.
 - ⟨W²⟩ is 0.006, so $K_{\rm G} = \pi\sqrt{\langle W^2\rangle\langle\delta N^2\rangle}$ would be 0.26. Only the theta-function inversion recovers $K = 1$.
 
+**Tonks gas in a disorder potential** (same ring; $V_d$ = 0.5, 1, 2 with $q_c = 4$, `dseed=1`, 6 modes; 16 seeds × $4\times10^7$ steps per $P$, 32 seeds at P = 40 and 80 for $V_d = 2$), against `exact_tonks.py` for the same realisation. τ → 0 values, from $a + b\tau^2$ fits over P = 10–80 (10–160 for $V_d = 2$):
+
+| $V_d$ | | N | ⟨δN²⟩ | E | ⟨W²⟩ | $K_{\rm th}$ |
+|---|---|---|---|---|---|---|
+| 0.5 | exact | 4.1442 | 1.1107 | 1.6141 | 0.004504 | 0.9486 |
+| | τ→0 | 4.1439(12) | 1.1108(12) | 1.6165(25) | 0.004519(47) | 0.94834(75) |
+| 1 | exact | 4.1367 | 0.95654 | 0.62722 | 0.002418 | 0.83838 |
+| | τ→0 | 4.1349(10) | 0.95735(11) | 0.6281(22) | 0.002436(27) | 0.83922(81) |
+| 2 | exact | 4.2083 | 0.73016 | −2.1362 | 0.0005063 | 0.65963 |
+| | τ→0 | 4.2087(7) | 0.72994(63) | −2.1378(16) | 0.0005082(80) | 0.65957(67) |
+
+- All τ → 0 values agree with the exact ring within 1.7σ.
+- **K with strong disorder.** At $V_d = 2$ the winding is suppressed to ⟨W²⟩ = 5·10⁻⁴, and $K_{\rm th}$ still matches the exact 0.6596 to 0.1%. $K_{\rm G}$ would give 0.06.
+- **Trotter error.** The disorder enters through the primitive approximation, so it brings back an $O(\tau^2)$ error. At $V_d = 2$ and P = 10 (τ = 0.2), E is off by −192σ (−0.41) and N by +52σ. At P = 80 every quantity agrees with the exact value within 2.1σ.
+- **E at $V_d = 2$.** The five-point fit has χ²/dof = 18.9/3, because the P = 10 point needs higher orders in τ. Without it the fit gives −2.1316(23) with χ²/dof = 4.6/2 (+2.0σ).
+
 **Finite coupling against Yang–Yang** ($g = 2$, $L = 20$, β = 1, μ = 1, so $n \approx 0.79$, γ ≈ 2.5):
 
 | P | τ | seeds | N | ⟨δN²⟩ | E | V̄ |
@@ -794,7 +810,7 @@ sbatch -p gpu --gres=gpu:1 validation/lj100_gpu.sh A double       # A|B, double|
 python3 validation/analyze.py      # summary tables (markdown); trotter | cycles | disorder | lj100
 python3 validation/figures.py      # docs/figures/val_*.png
 # contact interaction (CPU, one chain per array task = seed)
-for P in 10 20 40 80; do sbatch -p cpu -c1 --array=1-8 validation/contact.sh tonks $P; done   # also g2
+for P in 10 20 40 80; do sbatch -p cpu -c1 --array=1-8 validation/contact.sh tonks $P; done   # also g2; tonksd0.5|1|2 with --array=1-16
 for g in 1 2.5 8; do for t in 0.05 0.025; do sbatch -p cpu -c1 --array=1-8 validation/llK.sh $g $t; done; done
 python3 validation/contact_combine.py; python3 validation/llK_combine.py
 ```

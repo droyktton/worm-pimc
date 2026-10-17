@@ -1,7 +1,7 @@
 """Compare validation/contact.sh (pot=3, 1D contact) with the exact results: per case and P the mean and
 standard error over seeds of N, <dN^2>, E, Vbar (= g <sum delta>), <W^2>, K_th (pooled histograms), the
 deviation from the exact value in sigma, and the tau -> 0 fit a + b tau^2.
-  tonks: exact_tonks.py (hard-core bosons on the same finite ring, incl. P(W) and K_th)
+  tonks, tonksd<Vd>: exact_tonks.py (hard-core bosons on the same finite ring, incl. P(W) and K_th)
   g2, g05: exact_yy.py (Yang-Yang, thermodynamic limit; finite-L corrections are exponentially small)
 usage (from the repository root, on a compute node): python3 validation/contact_combine.py"""
 import glob, io, math, os, re, sys
@@ -13,7 +13,8 @@ import lutt_combine as lc
 import exact_tonks, exact_yy
 
 OUT = "validation/out/contact"
-CASES = {"tonks": dict(L=10, beta=2, mu=1, g=None), "g2": dict(L=20, beta=1, mu=1, g=2.0),
+CASES = {"tonks": dict(L=10, beta=2, mu=1, g=None),
+         **{f"tonksd{v}": dict(L=10, beta=2, mu=1, g=None, Vd=v) for v in ("0.5", "1", "2")}, "g2": dict(L=20, beta=1, mu=1, g=2.0),
          "g05": dict(L=20, beta=1, mu=1, g=0.5)}
 
 
@@ -22,7 +23,8 @@ def exact(case):
     if c["g"] is None:
         f = io.StringIO()
         with redirect_stdout(f):
-            exact_tonks.main([str(c["L"]), str(c["beta"]), str(c["mu"]), "nmax=80"])
+            exact_tonks.main([str(c["L"]), str(c["beta"]), str(c["mu"]), "nmax=80"]
+                             + ([f"Vd={c['Vd']}", "qc=4", "dseed=1"] if "Vd" in c else []))
         t = f.getvalue()
         g = lambda k: float(re.search(rf"\b{k}= +(-?[0-9.e+-]+)", t).group(1))
         return dict(N=g("N"), dN2=g("dN2"), E=g("E"), Vbar=0.0, W2=g("W2"), K_th=g("K_th"))
@@ -54,7 +56,7 @@ def kth(r):
 def main():
     runs = defaultdict(lambda: defaultdict(list))
     for f in glob.glob(f"{OUT}/*.txt"):
-        m = re.match(r"(\w+?)_P(\d+)_s\d+\.txt", os.path.basename(f))
+        m = re.match(r"([\w.]+?)_P(\d+)_s\d+\.txt", os.path.basename(f))
         r = parse(f)
         if m and r:
             runs[m.group(1)][int(m.group(2))].append(r)
@@ -62,7 +64,8 @@ def main():
     for case in [c for c in CASES if c in runs]:
         ex = exact(case)
         c = CASES[case]
-        print(f"\n### {case}: L={c['L']} beta={c['beta']} mu={c['mu']} g={'inf' if c['g'] is None else c['g']}\n")
+        print(f"\n### {case}: L={c['L']} beta={c['beta']} mu={c['mu']} g={'inf' if c['g'] is None else c['g']}"
+              + (f" Vd={c['Vd']} qc=4 dseed=1" if "Vd" in c else "") + "\n")
         keys = [k for k in ("N", "dN2", "E", "Vbar", "W2", "K_th") if k in ex and not (k == "Vbar" and c["g"] is None)]
         print("| P | τ | seeds | " + " | ".join(keys) + " |")
         print("|---" * (len(keys) + 3) + "|")
